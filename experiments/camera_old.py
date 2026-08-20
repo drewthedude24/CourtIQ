@@ -1,16 +1,6 @@
 import cv2 as cv 
 import time 
 
-class Camera:
-    def __init__(self, cap, width, height):
-        self.width = width
-        self.height = height
-
-        self.cap = cv.VideoCapture(cap)
-        self.cap.set(cv.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, height)
-
-
 cap = cv.VideoCapture(0)
 cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
