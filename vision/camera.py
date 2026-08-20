@@ -1,44 +1,40 @@
 import cv2 as cv 
-import time 
 
+# defining a class so later in main.py its easier to pipeline
 class Camera:
-    def __init__(self, cap, width, height):
+    # initializing, cap is either 0, 1, 2, 3, -1 (0 is webcam)
+    # height/width is the webcam source (1280/720 leads to 30 FPS yolo)
+    def __init__(self, source = 0, width = 1280, height= 720):
         self.width = width
         self.height = height
 
-        self.cap = cv.VideoCapture(cap)
+        self.cap = cv.VideoCapture(source)
         self.cap.set(cv.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, height)
 
+        # checks if the camera can open
+        if not self.cap.isOpened():
+            raise RuntimeError("Camera cannot open")
+            
+    # gets a frame and sends it to while loop in main.py
+    def read_frame(self):
+        ret,frame = self.cap.read()
 
-cap = cv.VideoCapture(0)
-cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
+        if not ret:
+            print("No Frame to recieve, exiting...")
+            return None
+        
+        return frame
+    
+    # returns a text with the FPS currently
+    def get_fps(self):
+        fps = str(self.cap.get(cv.CAP_PROP_FPS))
+        return fps
 
+    # releases and turns off the camera when asked too
+    def release(self):
+        self.cap.release()
+        # might have to remove the next line, and put in MAIN.PY file only, cause you dont want to shut whole window
+        cv.destroyAllWindows()
 
-# check if camera opens 
-if not cap.isOpened():
-    print("Error: Camera cannot open")
-    exit()
-
-# Read if it does open, shows true:
-while True:
-    ret, frame = cap.read()
-    # if no frame to read, broken, then cancel while loop
-    if not ret:
-        print("No frame to recieve, exiting...")
-        break
-
-    # display fps in the frame
-    fps = str(cap.get(cv.CAP_PROP_FPS))
-    text = "FPS: " + fps
-    cv.putText(frame, text, (50,50), cv.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2, cv.LINE_AA)
-    cv.imshow("Camera", frame)
-
-    # can leave with button
-    if cv.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv.destroyAllWindows()
     
