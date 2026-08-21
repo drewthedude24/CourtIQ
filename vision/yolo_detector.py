@@ -5,10 +5,11 @@ class YoloDetector():
     # model is type of yolo model "yolo26n.pt", conf_thres is detection min needed
     # device is what core to run yolo with, mps is gpu, cpu, cuda, amd, tpu ...
     # will need to not hardcode the model directory for best.pt 
-    def __init__(self, model = "/Users/andrewmeng/Desktop/courtIQ/runs2/basketball_yolo2/weights/best.pt", confidence_threshold = 0.45, device = "cpu"):
+    def __init__(self, model = "/Users/andrewmeng/Desktop/courtIQ/runs3/basketball_yolo3/weights/best.pt", confidence_threshold = 0.6, device = "mps"):
         self.model = YOLO(model)
         self.conf = confidence_threshold
         self.device = device
+        
         
 
     # returns the updated inferenced frame given from opencv, # WILL KEEP FOR NOW, INCASE WE DONT WANT FPS TEXT
@@ -21,7 +22,7 @@ class YoloDetector():
     def detect_frame_with_fps(self, frame):
         start_time = time.perf_counter()
         results = self.model.predict(frame, imgsz = 512, verbose = False, conf = self.conf, device = self.device,
-                                     classes = [0,32])
+                                     classes = [0,1])
         end_time = time.perf_counter()
 
         # gets each detection box and its details where we loop through each one
