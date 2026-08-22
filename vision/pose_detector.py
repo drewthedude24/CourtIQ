@@ -7,7 +7,6 @@ class PoseDetector():
         self.model = YOLO(model)
         self.conf = conf
         self.device = device
-        self.RIGHT_WRIST_IND = 10
 
     # we will see if imgsz being diff than basketball detection matters
     def detect(self, frame):
@@ -36,6 +35,7 @@ class PoseDetector():
             person_keypoints = kpts.xy[i].cpu().numpy()
             keypoint_conf = kpts.conf[i].cpu().numpy()
 
+            # gets each persons information and its keypoints x,y,conf
             person = {
                 "person_id": person_id,
                 "confidence" : conf,
