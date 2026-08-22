@@ -5,12 +5,14 @@ from camera import Camera
 from yolo_detector import YoloDetector
 from pose_detector import PoseDetector
 from ball_tracker import BallTracker
+from shot_detector import ShotDetector
 
 # create both objects to use in loop
 camera = Camera()
 yolo_detector = YoloDetector()
 pose_detector = PoseDetector()
 ball_tracker = BallTracker()
+shot_detector = ShotDetector()
 
 # run while loop until we close or error
 while True:
@@ -27,9 +29,22 @@ while True:
     yolo_frame, detections, yolo_fps = yolo_detector.detect_frame_with_fps(frame)
     people = pose_detector.detect(yolo_frame)
     tracked_ball = ball_tracker.update(detections)
-    print(people)
+
+    shot_state = shot_detector.update(tracked_ball, people)
+
+    print(
+        "State:",
+        shot_state,
+        "| Possessor:",
+        shot_detector.current_possessor_id,
+        "| Shooter:",
+        shot_detector.active_shooter_id
+    )
+
+    
     text = "YOLO FPS: " + str(yolo_fps)
     cv.putText(yolo_frame, text, (50,50), cv.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2, cv.LINE_AA)
+    cv.putText(yolo_frame, shot_state, (50,150), cv.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2, cv.LINE_AA)
     cv.imshow("Detection: ", yolo_frame)
     
     # can close with button

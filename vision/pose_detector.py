@@ -42,6 +42,10 @@ class PoseDetector():
                 "bbox": (x1,y1,x2,y2),
                 "height" : person_height,
                 "keypoints": {
+                    "right_ear": {
+                        "position" : tuple(person_keypoints[4]),
+                        "confidence" : float(keypoint_conf[4])
+                    },
                     "left_shoulder": {
                         "position": tuple(person_keypoints[5]),
                         "confidence": float(keypoint_conf[5])
