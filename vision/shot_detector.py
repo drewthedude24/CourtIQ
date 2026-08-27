@@ -10,10 +10,11 @@ class ShotDetector():
         # later will implement pose deque, that stores the last 60 frames
         # when a shot is detected at the top of shot, go back in frames to see
         # key details like knee bend and stuff like that 
+        
         # pose_history = deque(maxlen = 60)
 
         self.possession_distance_threshold = 90
-        self.release_distance_threshold = 120
+        self.release_distance_threshold = 100
         self.possessor_missing_frames = 0
 # will add hoop detection later !!!
     def update(self,tracked_ball, people, allowed_missing_frames = 10):
@@ -109,6 +110,26 @@ class ShotDetector():
                 self.active_shooter_id = self.current_possessor_id
                 self.state = "RELEASED"
             elif veloY > 0 and wrist_dist < self.possession_distance_threshold:
+                self.state = "POSSESSION"
+
+        elif self.state == "RELEASED":
+            current_possessor = None
+
+            if self.active_shooter_id is not None:
+                for person in people:
+                    if person.get("person_id") == self.active_shooter_id:
+                        current_possessor = person
+                        break
+            if current_possessor is None and closest_person_id is not None:
+                # safest fallback: only use valid list index
+                if 0 <= closest_person_id < len(people):
+                    current_possessor = people[closest_person_id]
+
+            if current_possessor is None:
+                return self.state
+            
+            ear_y = current_possessor['keypoints']['right_ear']['position'][1]
+            if wrist_dist < self.possession_distance_threshold and ball_center[1] <= ear_y:
                 self.state = "POSSESSION"
         return self.state
     

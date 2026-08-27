@@ -10,8 +10,9 @@ class PoseDetector():
 
     # we will see if imgsz being diff than basketball detection matters
     def detect(self, frame):
+        # still need to decide if bytetrack is worth
         results = self.model.track(frame,persist = True, tracker = "bytetrack.yaml",
-         imgsz = 384, verbose = False, conf = self.conf, device = self.device)
+        imgsz = 384, verbose = False, conf = self.conf, device = self.device)
         
         people = []
         result = results[0]
