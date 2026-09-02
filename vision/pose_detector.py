@@ -99,4 +99,4 @@ class PoseDetector():
                 }
             }
             people.append(person)
-            return people
+        return people

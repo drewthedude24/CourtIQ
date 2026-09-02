@@ -14,10 +14,16 @@ class ShotDetector():
         # pose_history = deque(maxlen = 60)
 
         self.possession_distance_threshold = 90
-        self.release_distance_threshold = 100
+        self.release_distance_threshold = 80
+        self.release_upward_velocity_threshold = -4
         self.possessor_missing_frames = 0
 # will add hoop detection later !!!
     def update(self,tracked_ball, people, allowed_missing_frames = 10):
+        # A release belongs to the current shot until the result detector calls
+        # complete_shot(). Detector gaps near the rim must not erase it.
+        if self.state == "RELEASED":
+            return self.state
+
         # determines what happens when ball is not detected in a frame
         if not tracked_ball["detected"]:
             # if within a limit, keep state the same
@@ -34,10 +40,10 @@ class ShotDetector():
         closest_person_id = None
         closest_wrist_distance = math.inf
 
-        # find whos wrist is closer to the ball 
+        # Find whose wrist is closer to the ball. Checking both wrists prevents
+        # pose jitter or a left-handed gather from breaking possession.
         for person in people:
-            right_wrist = person["keypoints"]["right_wrist"]["position"]
-            wrist_dist = self.calculate_dist(ball_center, right_wrist)
+            wrist_dist = self.closest_wrist_distance(ball_center, person)
             if wrist_dist < closest_wrist_distance:
                 closest_wrist_distance = wrist_dist
                 closest_person_id = person["person_id"]
@@ -66,14 +72,15 @@ class ShotDetector():
 
             self.possessor_missing_frames = 0
 
-            right_wrist = current_possessor["keypoints"]["right_wrist"]["position"]
+            wrist_dist = self.closest_wrist_distance(ball_center, current_possessor)
+            ear_y = current_possessor['keypoints']['right_ear']['position'][1]
 
-            wrist_dist = self.calculate_dist(
-            tracked_ball["center"],
-            right_wrist
-            )
-
-            if wrist_dist < self.possession_distance_threshold:
+            # Fast releases can move from gather to airborne in one frame. Test
+            # release before dropping possession when the wrist keypoint jitters.
+            if self.looks_like_release(ball_center, veloY, wrist_dist, ear_y):
+                self.active_shooter_id = self.current_possessor_id
+                self.state = "RELEASED"
+            elif wrist_dist < self.possession_distance_threshold:
                 if veloY < 0:
                     self.state = "POSSIBLE_SHOT"
             else:
@@ -98,39 +105,15 @@ class ShotDetector():
 
             self.possessor_missing_frames = 0
 
-            right_wrist = current_possessor["keypoints"]["right_wrist"]["position"]
-            
-            wrist_dist = self.calculate_dist(
-                tracked_ball["center"],
-                right_wrist
-            )
+            wrist_dist = self.closest_wrist_distance(ball_center, current_possessor)
 
             ear_y = current_possessor['keypoints']['right_ear']['position'][1]
-            if wrist_dist > self.release_distance_threshold and ball_center[1] <= ear_y and veloY < 0:
+            if self.looks_like_release(ball_center, veloY, wrist_dist, ear_y):
                 self.active_shooter_id = self.current_possessor_id
                 self.state = "RELEASED"
             elif veloY > 0 and wrist_dist < self.possession_distance_threshold:
                 self.state = "POSSESSION"
 
-        elif self.state == "RELEASED":
-            current_possessor = None
-
-            if self.active_shooter_id is not None:
-                for person in people:
-                    if person.get("person_id") == self.active_shooter_id:
-                        current_possessor = person
-                        break
-            if current_possessor is None and closest_person_id is not None:
-                # safest fallback: only use valid list index
-                if 0 <= closest_person_id < len(people):
-                    current_possessor = people[closest_person_id]
-
-            if current_possessor is None:
-                return self.state
-            
-            ear_y = current_possessor['keypoints']['right_ear']['position'][1]
-            if wrist_dist < self.possession_distance_threshold and ball_center[1] <= ear_y:
-                self.state = "POSSESSION"
         return self.state
     
     def calculate_dist(self, point1, point2):
@@ -138,8 +121,29 @@ class ShotDetector():
         x2, y2 = point2
         return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
+    def closest_wrist_distance(self, ball_center, person):
+        wrist_positions = [
+            person["keypoints"]["left_wrist"]["position"],
+            person["keypoints"]["right_wrist"]["position"],
+        ]
+        return min(
+            self.calculate_dist(ball_center, wrist_position)
+            for wrist_position in wrist_positions
+        )
+
+    def looks_like_release(self, ball_center, velocity_y, wrist_distance, ear_y):
+        return (
+            wrist_distance > self.release_distance_threshold
+            and ball_center[1] <= ear_y
+            and velocity_y <= self.release_upward_velocity_threshold
+        )
+
     def reset(self):
         self.state = "IDLE"
         self.active_shooter_id = None
         self.current_possessor_id = None
         self.possessor_missing_frames = 0
+
+    def complete_shot(self):
+        """Allow a new possession only after make/miss has been decided."""
+        self.reset()
