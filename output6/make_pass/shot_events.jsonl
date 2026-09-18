@@ -1,0 +1,2 @@
+{"shot_id": 1, "frame_index": 333, "timestamp_s": 5.55296, "result": "MAKE", "release_frame": 201, "reason": "predicted crossing held", "rim_center": [833.85, 261.79], "provisional_crossing_x": 888.674}
+{"shot_id": 2, "frame_index": 671, "timestamp_s": 11.189297777777778, "result": "MAKE", "release_frame": 542, "reason": "predicted crossing held", "rim_center": [838.73, 259.5], "provisional_crossing_x": 850.0740000000001}

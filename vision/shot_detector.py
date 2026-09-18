@@ -2,10 +2,12 @@ import math
 
 class ShotDetector():
 
-    def __init__(self):
+    def __init__(self, result_cooldown_frames=60):
         self.current_possessor_id = None
         self.active_shooter_id = None
         self.state = "IDLE"
+        self.result_cooldown_frames = result_cooldown_frames
+        self.cooldown_frames_remaining = 0
         # self.ball_near_wrist = False
         # later will implement pose deque, that stores the last 60 frames
         # when a shot is detected at the top of shot, go back in frames to see
@@ -19,6 +21,11 @@ class ShotDetector():
         self.possessor_missing_frames = 0
 # will add hoop detection later !!!
     def update(self,tracked_ball, people, allowed_missing_frames = 10):
+        # Rebound handling immediately after a result is not a new shot.
+        if self.cooldown_frames_remaining > 0:
+            self.cooldown_frames_remaining -= 1
+            return self.state
+
         # A release belongs to the current shot until the result detector calls
         # complete_shot(). Detector gaps near the rim must not erase it.
         if self.state == "RELEASED":
@@ -147,3 +154,4 @@ class ShotDetector():
     def complete_shot(self):
         """Allow a new possession only after make/miss has been decided."""
         self.reset()
+        self.cooldown_frames_remaining = self.result_cooldown_frames

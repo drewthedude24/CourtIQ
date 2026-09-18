@@ -1,0 +1,16 @@
+{
+  "render_mode": "clean-results-only",
+  "inference_resolution": [
+    960,
+    540
+  ],
+  "output_resolution": [
+    1080,
+    1920
+  ],
+  "frame_coordinates": "inference_resolution",
+  "full_frame_imgsz": 640,
+  "focus_crop_imgsz": 640,
+  "full_frame_interval": 3,
+  "confidence_threshold": 0.12
+}

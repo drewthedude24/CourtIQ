@@ -1,0 +1,17 @@
+{
+  "inference_resolution": [
+    720,
+    1280
+  ],
+  "output_resolution": [
+    720,
+    1280
+  ],
+  "frame_coordinates": "inference_resolution",
+  "full_frame_imgsz": 960,
+  "focus_crop_imgsz": 640,
+  "full_frame_interval": 1,
+  "confidence_threshold": 0.12,
+  "video_codec": "avc1",
+  "tracker": "constant-velocity Kalman filter with acceleration process noise"
+}

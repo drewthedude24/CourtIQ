@@ -1,0 +1,43 @@
+{
+  "render_mode": "stitched-debug",
+  "clips": [
+    "make_pass.mov",
+    "miss_dribble.mov",
+    "miss_self.mov"
+  ],
+  "clip_metadata": [
+    {
+      "width": 1080,
+      "height": 1920,
+      "fps": 59.9680170575693,
+      "frames": 750
+    },
+    {
+      "width": 1080,
+      "height": 1920,
+      "fps": 59.961563100576555,
+      "frames": 468
+    },
+    {
+      "width": 1080,
+      "height": 1920,
+      "fps": 59.95279307631786,
+      "frames": 381
+    }
+  ],
+  "inference_resolution": [
+    1280,
+    720
+  ],
+  "output_resolution": [
+    1080,
+    1920
+  ],
+  "frame_coordinates": "inference_resolution",
+  "full_frame_imgsz": 960,
+  "focus_crop_imgsz": 640,
+  "full_frame_interval": 3,
+  "confidence_threshold": 0.12,
+  "tracker": "constant-velocity Kalman filter with acceleration process noise",
+  "resets_tracking_between_clips": true
+}

@@ -1,0 +1,11 @@
+{
+  "inference_resolution": [
+    1280,
+    720
+  ],
+  "full_frame_imgsz": 960,
+  "focus_crop_imgsz": 640,
+  "full_frame_interval": 3,
+  "confidence_threshold": 0.12,
+  "tracker": "constant-acceleration Kalman filter"
+}

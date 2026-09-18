@@ -49,69 +49,42 @@ def draw_debug_overlay(
     cv.putText(
         annotated_frame,
         f"Track: {tracking_status} | conf: {confidence_text} | source: {selected_source}",
-        (20, 110),
+        (20, 100),
         cv.FONT_HERSHEY_SIMPLEX,
-        0.82,
+        1.05,
         (0, 255, 0) if tracking_status == "DETECTED" else (0, 255, 255),
-        3,
+        4,
         cv.LINE_AA,
     )
     cv.putText(
         annotated_frame,
         f"Ball velocity: ({velocity_x:.1f}, {velocity_y:.1f})",
-        (20, 145),
+        (20, 150),
         cv.FONT_HERSHEY_SIMPLEX,
-        0.82,
+        1.05,
         (0, 255, 255),
-        3,
+        4,
         cv.LINE_AA,
     )
 
     cv.putText(
         annotated_frame,
         f"State: {state}",
-        (20, 40),
+        (20, 50),
         cv.FONT_HERSHEY_SIMPLEX,
-        1.05,
+        1.35,
         (0, 255, 0),
-        3,
-        cv.LINE_AA,
-    )
-    cv.putText(
-        annotated_frame,
-        f"Time: {timestamp_s:.2f}s",
-        (20, 75),
-        cv.FONT_HERSHEY_SIMPLEX,
-        1.0,
-        (255, 255, 255),
-        3,
+        4,
         cv.LINE_AA,
     )
     cv.putText(
         annotated_frame,
         f"Missing frames: {tracked_ball['missing_frames']}",
-        (20, 180),
+        (20, 200),
         cv.FONT_HERSHEY_SIMPLEX,
-        0.82,
+        1.05,
         (0, 165, 255),
-        3,
-        cv.LINE_AA,
-    )
-
-    acceleration_x, acceleration_y = tracked_ball.get(
-        "kalman_acceleration",
-        (0.0, 0.0),
-    )
-    uncertainty = tracked_ball.get("prediction_uncertainty")
-    uncertainty_text = "--" if uncertainty is None else f"{uncertainty:.1f}px"
-    cv.putText(
-        annotated_frame,
-        f"Kalman a: ({acceleration_x:.1f}, {acceleration_y:.1f}) | sigma: {uncertainty_text}",
-        (20, 215),
-        cv.FONT_HERSHEY_SIMPLEX,
-        0.75,
-        (255, 200, 0),
-        3,
+        4,
         cv.LINE_AA,
     )
 
@@ -146,26 +119,32 @@ def _draw_shot_result(annotated_frame, shot_result):
     elif result_status == "MAKE":
         label = "MAKE"
         color = (0, 255, 0)
-        scale = 1.8
+        scale = 2.6
     elif result_status == "MISS":
         label = "MISS"
         color = (0, 0, 255)
-        scale = 1.8
+        scale = 2.6
     else:
         label = "Result: waiting for release"
         color = (200, 200, 200)
         scale = 0.8
 
-    text_size, _ = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, scale, 3)
+    thickness = 6 if result_status in {"MAKE", "MISS"} else 3
+    text_size, _ = cv.getTextSize(
+        label,
+        cv.FONT_HERSHEY_SIMPLEX,
+        scale,
+        thickness,
+    )
     text_x = max(20, annotated_frame.shape[1] - text_size[0] - 30)
     cv.putText(
         annotated_frame,
         label,
-        (text_x, 55),
+        (text_x, 65 if result_status in {"MAKE", "MISS"} else 55),
         cv.FONT_HERSHEY_SIMPLEX,
         scale,
         color,
-        3,
+        thickness,
         cv.LINE_AA,
     )
 

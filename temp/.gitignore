@@ -1,0 +1,7 @@
+courtiq_temp.db
+storage/uploads/*/
+storage/results/*/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
