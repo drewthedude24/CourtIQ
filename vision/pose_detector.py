@@ -1,10 +1,11 @@
 from ultralytics import YOLO
 import time
-import cv2 
+import cv2
+from yolo_detector import model_for_this_machine
 
 class PoseDetector():
     def __init__(self, model = "yolo26n-pose.pt", conf = 0.7, device = "cpu"):
-        self.model = YOLO(model)
+        self.model = YOLO(model_for_this_machine(model), task="pose")
         self.conf = conf
         self.device = device
 

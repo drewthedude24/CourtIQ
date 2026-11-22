@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from datetime import date
 from pathlib import Path
@@ -121,7 +122,9 @@ def run_processing_job(session_id, input_path, output_directory):
         output_path = Path(output_directory) / "annotated.mp4"
         if not output_path.exists():
             raise RuntimeError("Vision processing finished without creating annotated.mp4")
+        start = time.perf_counter()
         convert_to_h264(output_path)
+        print(f"[{session_id}] H.264 conversion took {time.perf_counter() - start:.1f} s", flush=True)
         mark_completed(session_id, output_path.relative_to(PROJECT_ROOT), events)
     except Exception as error:
         traceback.print_exc()
