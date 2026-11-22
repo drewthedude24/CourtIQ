@@ -1,0 +1,13 @@
+# Keep the build small: only code and models go into the image.
+.venv/
+.git/
+**/__pycache__/
+frontend/
+storage/
+video/
+output*/
+outputs/
+runs*/
+experiments/
+data/
+*.db

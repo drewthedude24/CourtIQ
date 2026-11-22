@@ -1,3 +1,4 @@
+import torch
 from ultralytics import YOLO
 import time
 import cv2
@@ -11,7 +12,8 @@ class YoloDetector():
         self,
         model="models/basketball_yolo.pt",
         confidence_threshold=0.6,
-        device="mps",
+        # Mac GPU when there is one, CPU otherwise (Linux and Docker).
+        device="mps" if torch.backends.mps.is_available() else "cpu",
         image_size=512,
         focus_image_size=640,
         focus_skip_confidence=0.45,

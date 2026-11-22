@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import sys
 import traceback
 from datetime import date
@@ -32,7 +33,8 @@ WEB_FULL_IMAGE_SIZE = 960
 WEB_FOCUS_IMAGE_SIZE = 640
 WEB_FULL_FRAME_INTERVAL = 1
 WEB_CONFIDENCE_THRESHOLD = 0.12
-WEB_VIDEO_CODEC = "avc1"
+# OpenCV on Linux can't write H.264, so write mp4v and let ffmpeg convert it.
+WEB_VIDEO_CODEC = "mp4v"
 
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 RESULT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -74,6 +76,19 @@ def load_vision_processor():
     return process_video
 
 
+def convert_to_h264(video_path):
+    """Re-encode a video to H.264 in place, the codec every browser can play."""
+    video_path = Path(video_path)
+    converted_path = video_path.with_name("h264_" + video_path.name)
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video_path),
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+         str(converted_path)],
+        check=True,
+    )
+    converted_path.replace(video_path)
+
+
 def public_session(session):
     video_url = None
     if session["status"] == "COMPLETED" and session["output_path"]:
@@ -103,6 +118,7 @@ def run_processing_job(session_id, input_path, output_directory):
         output_path = Path(output_directory) / "annotated.mp4"
         if not output_path.exists():
             raise RuntimeError("Vision processing finished without creating annotated.mp4")
+        convert_to_h264(output_path)
         mark_completed(session_id, output_path, events)
     except Exception as error:
         traceback.print_exc()
