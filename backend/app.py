@@ -1,6 +1,7 @@
 import shutil
 import sys
 import traceback
+from datetime import date
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
@@ -159,8 +160,15 @@ async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
 
 
 @app.get("/api/sessions")
-def sessions_list():
-    return list_sessions()
+def sessions_list(month: str | None = None):
+    # `month` looks like "2026-03". Without it, every session is listed.
+    if month is None:
+        return list_sessions()
+    try:
+        first_day = date.fromisoformat(f"{month}-01")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="month must look like 2026-03")
+    return list_sessions(month=first_day)
 
 
 @app.get("/api/stats")

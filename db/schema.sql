@@ -20,3 +20,17 @@ CREATE TABLE IF NOT EXISTS shots (
     reason      text,
     UNIQUE (session_id, shot_number)
 );
+
+-- Holds every column a per-session make/miss count needs, so Postgres can answer
+-- from this index alone and never open the table (see docs/query-optimization.md).
+CREATE INDEX IF NOT EXISTS shots_session_id_result_idx ON shots (session_id, result);
+
+-- Makes and misses per month, saved so the trend chart reads 12 rows instead of
+-- every shot. backend/database.py refreshes it whenever a session's shots are saved.
+CREATE MATERIALIZED VIEW IF NOT EXISTS monthly_stats AS
+SELECT date_trunc('month', sessions.created_at)::date AS month,
+       count(*) FILTER (WHERE shots.result = 'MAKE') AS makes,
+       count(*) FILTER (WHERE shots.result = 'MISS') AS misses
+FROM shots
+JOIN sessions ON sessions.id = shots.session_id
+GROUP BY 1;
