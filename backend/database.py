@@ -1,104 +1,74 @@
-import sqlite3
-from datetime import datetime, timezone
+import os
 from pathlib import Path
 
+import psycopg
+from psycopg.rows import dict_row
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATABASE_PATH = PROJECT_ROOT / "courtiq_temp.db"
 
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "db" / "schema.sql"
+# The default matches docker-compose.yml, so local runs need no setup.
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql://courtiq:courtiq@localhost:5432/courtiq"
+)
 
 
 def connect():
-    connection = sqlite3.connect(DATABASE_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    # Leaving a `with connect()` block commits, or rolls back on an error.
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
 def initialize_database():
     with connect() as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                original_filename TEXT NOT NULL,
-                input_path TEXT NOT NULL,
-                output_path TEXT,
-                status TEXT NOT NULL,
-                makes INTEGER NOT NULL DEFAULT 0,
-                misses INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                completed_at TEXT,
-                error_message TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS shots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                shot_number INTEGER NOT NULL,
-                result TEXT NOT NULL,
-                timestamp_s REAL NOT NULL,
-                reason TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-            );
-            """
-        )
+        connection.execute(SCHEMA_PATH.read_text())
 
 
 def create_session(session_id, original_filename, input_path):
     with connect() as connection:
         connection.execute(
             """
-            INSERT INTO sessions (
-                id, original_filename, input_path, status, created_at
-            ) VALUES (?, ?, ?, 'QUEUED', ?)
+            INSERT INTO sessions (id, original_filename, input_path, status)
+            VALUES (%s, %s, %s, 'QUEUED')
             """,
-            (session_id, original_filename, str(input_path), utc_now()),
+            (session_id, original_filename, str(input_path)),
         )
 
 
 def mark_processing(session_id):
     with connect() as connection:
         connection.execute(
-            "UPDATE sessions SET status = 'PROCESSING', error_message = NULL WHERE id = ?",
+            "UPDATE sessions SET status = 'PROCESSING', error_message = NULL WHERE id = %s",
             (session_id,),
         )
 
 
 def mark_completed(session_id, output_path, events):
-    makes = sum(event["result"] == "MAKE" for event in events)
-    misses = sum(event["result"] == "MISS" for event in events)
-
     with connect() as connection:
-        connection.execute("DELETE FROM shots WHERE session_id = ?", (session_id,))
-        connection.executemany(
-            """
-            INSERT INTO shots (
-                session_id, shot_number, result, timestamp_s, reason
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    session_id,
-                    index,
-                    event["result"],
-                    float(event["timestamp_s"]),
-                    event.get("reason"),
-                )
-                for index, event in enumerate(events, start=1)
-            ],
-        )
+        connection.execute("DELETE FROM shots WHERE session_id = %s", (session_id,))
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO shots (session_id, shot_number, result, timestamp_s, reason)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        session_id,
+                        index,
+                        event["result"],
+                        float(event["timestamp_s"]),
+                        event.get("reason"),
+                    )
+                    for index, event in enumerate(events, start=1)
+                ],
+            )
         connection.execute(
             """
             UPDATE sessions
-            SET status = 'COMPLETED', output_path = ?, makes = ?, misses = ?,
-                completed_at = ?, error_message = NULL
-            WHERE id = ?
+            SET status = 'COMPLETED', output_path = %s, completed_at = now(),
+                error_message = NULL
+            WHERE id = %s
             """,
-            (str(output_path), makes, misses, utc_now(), session_id),
+            (str(output_path), session_id),
         )
 
 
@@ -107,32 +77,78 @@ def mark_failed(session_id, error_message):
         connection.execute(
             """
             UPDATE sessions
-            SET status = 'FAILED', error_message = ?, completed_at = ?
-            WHERE id = ?
+            SET status = 'FAILED', error_message = %s, completed_at = now()
+            WHERE id = %s
             """,
-            (error_message, utc_now(), session_id),
+            (error_message, session_id),
         )
 
 
 def get_session(session_id):
     with connect() as connection:
-        session_row = connection.execute(
-            "SELECT * FROM sessions WHERE id = ?",
+        session = connection.execute(
+            """
+            SELECT sessions.*,
+                   count(shots.id) FILTER (WHERE shots.result = 'MAKE') AS makes,
+                   count(shots.id) FILTER (WHERE shots.result = 'MISS') AS misses
+            FROM sessions
+            LEFT JOIN shots ON shots.session_id = sessions.id
+            WHERE sessions.id = %s
+            GROUP BY sessions.id
+            """,
             (session_id,),
         ).fetchone()
-        if session_row is None:
+        if session is None:
             return None
 
-        shot_rows = connection.execute(
+        session["shots"] = connection.execute(
             """
             SELECT shot_number, result, timestamp_s, reason
             FROM shots
-            WHERE session_id = ?
+            WHERE session_id = %s
             ORDER BY shot_number
             """,
             (session_id,),
         ).fetchall()
 
-    session = dict(session_row)
-    session["shots"] = [dict(row) for row in shot_rows]
     return session
+
+
+def list_sessions():
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT sessions.id, sessions.original_filename, sessions.status,
+                   sessions.created_at,
+                   count(shots.id) FILTER (WHERE shots.result = 'MAKE') AS makes,
+                   count(shots.id) FILTER (WHERE shots.result = 'MISS') AS misses,
+                   round(100.0 * count(shots.id) FILTER (WHERE shots.result = 'MAKE')
+                         / nullif(count(shots.id), 0), 1)::float AS shooting_pct
+            FROM sessions
+            LEFT JOIN shots ON shots.session_id = sessions.id
+            GROUP BY sessions.id
+            ORDER BY sessions.created_at DESC
+            """
+        ).fetchall()
+
+
+def get_stats():
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT date_trunc('week', sessions.created_at)::date AS week,
+                   count(*) FILTER (WHERE shots.result = 'MAKE') AS makes,
+                   count(*) FILTER (WHERE shots.result = 'MISS') AS misses,
+                   round(100.0 * count(*) FILTER (WHERE shots.result = 'MAKE')
+                         / nullif(count(*), 0), 1)::float AS shooting_pct
+            FROM shots
+            JOIN sessions ON sessions.id = shots.session_id
+            GROUP BY ROLLUP (date_trunc('week', sessions.created_at))
+            ORDER BY week NULLS LAST
+            """
+        ).fetchall()
+
+    # ROLLUP adds one extra row for all weeks together. Its week is NULL, so it sorts last.
+    overall = rows.pop()
+    del overall["week"]
+    return {"overall": overall, "weeks": rows}

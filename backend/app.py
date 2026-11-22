@@ -12,7 +12,9 @@ from fastapi.responses import FileResponse
 from .database import (
     create_session,
     get_session,
+    get_stats,
     initialize_database,
+    list_sessions,
     mark_completed,
     mark_failed,
     mark_processing,
@@ -154,6 +156,16 @@ async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
         output_directory,
     )
     return public_session(get_session(session_id))
+
+
+@app.get("/api/sessions")
+def sessions_list():
+    return list_sessions()
+
+
+@app.get("/api/stats")
+def stats():
+    return get_stats()
 
 
 @app.get("/api/sessions/{session_id}")

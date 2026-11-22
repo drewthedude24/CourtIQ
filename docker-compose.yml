@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: courtiq
+      POSTGRES_PASSWORD: courtiq
+      POSTGRES_DB: courtiq
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, the first time the container starts with an empty volume.
+      - ./db/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql
+
+volumes:
+  pgdata:
