@@ -11,6 +11,24 @@ services:
       - pgdata:/var/lib/postgresql/data
       # Runs once, the first time the container starts with an empty volume.
       - ./db/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql
+    # Lets the api wait until Postgres accepts connections.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "courtiq"]
+      interval: 2s
+      retries: 15
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://courtiq:courtiq@db:5432/courtiq
+    volumes:
+      # Uploads and annotated videos stay on the laptop, so they survive a rebuild.
+      - ./storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
