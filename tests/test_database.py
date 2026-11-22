@@ -1,4 +1,5 @@
 import os
+from datetime import date
 
 import psycopg
 import pytest
@@ -22,6 +23,7 @@ def run_sql(sql, params=()):
 def empty_database():
     database.initialize_database()
     run_sql("TRUNCATE sessions, shots")
+    run_sql("REFRESH MATERIALIZED VIEW monthly_stats")
 
 
 def test_new_session_is_queued_with_no_shots():
@@ -103,26 +105,53 @@ def test_list_sessions_newest_first_with_shooting_pct():
     assert (sessions[1]["makes"], sessions[1]["misses"], sessions[1]["shooting_pct"]) == (2, 1, 66.7)
 
 
-def test_stats_overall_and_per_week():
-    database.create_session("w1", "a.mov", "/uploads/w1/input.mov")
-    database.mark_completed("w1", "/results/w1/annotated.mp4", EVENTS)
-    database.create_session("w3", "b.mov", "/uploads/w3/input.mov")
-    database.mark_completed("w3", "/results/w3/annotated.mp4", EVENTS[:1])
-    # A Wednesday and the Wednesday two weeks later. Weeks start on Monday.
-    run_sql("UPDATE sessions SET created_at = '2026-11-04 12:00+00' WHERE id = 'w1'")
-    run_sql("UPDATE sessions SET created_at = '2026-11-18 12:00+00' WHERE id = 'w3'")
+def test_list_sessions_for_one_month_only():
+    # The last second of February, the first and last moments of March, and the first of April.
+    for session_id, created_at in [
+        ("feb", "2026-02-28 23:59:59+00"),
+        ("mar_start", "2026-03-01 00:00+00"),
+        ("mar_end", "2026-03-31 23:59:59+00"),
+        ("apr", "2026-04-01 00:00+00"),
+    ]:
+        database.create_session(session_id, "a.mov", f"/uploads/{session_id}/input.mov")
+        run_sql("UPDATE sessions SET created_at = %s WHERE id = %s", (created_at, session_id))
+    database.mark_completed("mar_end", "/results/mar_end/annotated.mp4", EVENTS)
+
+    sessions = database.list_sessions(month=date(2026, 3, 1))
+
+    assert [(s["id"], s["makes"], s["misses"]) for s in sessions] == [
+        ("mar_end", 2, 1),
+        ("mar_start", 0, 0),
+    ]
+
+
+def test_stats_overall_and_per_month():
+    database.create_session("m1", "a.mov", "/uploads/m1/input.mov")
+    database.create_session("m3", "b.mov", "/uploads/m3/input.mov")
+    run_sql("UPDATE sessions SET created_at = '2026-01-31 23:00+00' WHERE id = 'm1'")
+    run_sql("UPDATE sessions SET created_at = '2026-03-01 01:00+00' WHERE id = 'm3'")
+    database.mark_completed("m1", "/results/m1/annotated.mp4", EVENTS)
+    database.mark_completed("m3", "/results/m3/annotated.mp4", EVENTS[:1])
 
     stats = database.get_stats()
 
     assert stats["overall"] == {"makes": 3, "misses": 1, "shooting_pct": 75.0}
-    assert [(w["week"].isoformat(), w["makes"], w["misses"], w["shooting_pct"]) for w in stats["weeks"]] == [
-        ("2026-11-02", 2, 1, 66.7),
-        ("2026-11-16", 1, 0, 100.0),
+    assert [(m["month"].isoformat(), m["makes"], m["misses"], m["shooting_pct"]) for m in stats["months"]] == [
+        ("2026-01-01", 2, 1, 66.7),
+        ("2026-03-01", 1, 0, 100.0),
     ]
+
+
+def test_stats_follow_replaced_shots():
+    database.create_session("s1", "a.mov", "/uploads/s1/input.mov")
+    database.mark_completed("s1", "/results/s1/annotated.mp4", EVENTS)
+    database.mark_completed("s1", "/results/s1/annotated.mp4", EVENTS[1:2])
+
+    assert database.get_stats()["overall"] == {"makes": 0, "misses": 1, "shooting_pct": 0.0}
 
 
 def test_stats_with_no_shots():
     assert database.get_stats() == {
         "overall": {"makes": 0, "misses": 0, "shooting_pct": None},
-        "weeks": [],
+        "months": [],
     }

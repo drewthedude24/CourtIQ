@@ -70,6 +70,7 @@ def mark_completed(session_id, output_path, events):
             """,
             (str(output_path), session_id),
         )
+        connection.execute("REFRESH MATERIALIZED VIEW monthly_stats")
 
 
 def mark_failed(session_id, error_message):
@@ -114,21 +115,28 @@ def get_session(session_id):
     return session
 
 
-def list_sessions():
+def list_sessions(month=None):
+    # `month` is the first day of a month (a date), or None for every session.
+    # Counting shots.result, not shots.id, lets Postgres read only the
+    # shots (session_id, result) index (see docs/query-optimization.md).
     with connect() as connection:
         return connection.execute(
             """
             SELECT sessions.id, sessions.original_filename, sessions.status,
                    sessions.created_at,
-                   count(shots.id) FILTER (WHERE shots.result = 'MAKE') AS makes,
-                   count(shots.id) FILTER (WHERE shots.result = 'MISS') AS misses,
-                   round(100.0 * count(shots.id) FILTER (WHERE shots.result = 'MAKE')
-                         / nullif(count(shots.id), 0), 1)::float AS shooting_pct
+                   count(shots.result) FILTER (WHERE shots.result = 'MAKE') AS makes,
+                   count(shots.result) FILTER (WHERE shots.result = 'MISS') AS misses,
+                   round(100.0 * count(shots.result) FILTER (WHERE shots.result = 'MAKE')
+                         / nullif(count(shots.result), 0), 1)::float AS shooting_pct
             FROM sessions
             LEFT JOIN shots ON shots.session_id = sessions.id
+            WHERE %(month)s::date IS NULL
+               OR (sessions.created_at >= %(month)s::date
+                   AND sessions.created_at < %(month)s::date + interval '1 month')
             GROUP BY sessions.id
             ORDER BY sessions.created_at DESC
-            """
+            """,
+            {"month": month},
         ).fetchall()
 
 
@@ -136,19 +144,18 @@ def get_stats():
     with connect() as connection:
         rows = connection.execute(
             """
-            SELECT date_trunc('week', sessions.created_at)::date AS week,
-                   count(*) FILTER (WHERE shots.result = 'MAKE') AS makes,
-                   count(*) FILTER (WHERE shots.result = 'MISS') AS misses,
-                   round(100.0 * count(*) FILTER (WHERE shots.result = 'MAKE')
-                         / nullif(count(*), 0), 1)::float AS shooting_pct
-            FROM shots
-            JOIN sessions ON sessions.id = shots.session_id
-            GROUP BY ROLLUP (date_trunc('week', sessions.created_at))
-            ORDER BY week NULLS LAST
+            SELECT month,
+                   coalesce(sum(makes), 0)::int AS makes,
+                   coalesce(sum(misses), 0)::int AS misses,
+                   round(100.0 * sum(makes) / nullif(sum(makes + misses), 0), 1)::float
+                       AS shooting_pct
+            FROM monthly_stats
+            GROUP BY ROLLUP (month)
+            ORDER BY month NULLS LAST
             """
         ).fetchall()
 
-    # ROLLUP adds one extra row for all weeks together. Its week is NULL, so it sorts last.
+    # ROLLUP adds one extra row for all months together. Its month is NULL, so it sorts last.
     overall = rows.pop()
-    del overall["week"]
-    return {"overall": overall, "weeks": rows}
+    del overall["month"]
+    return {"overall": overall, "months": rows}
