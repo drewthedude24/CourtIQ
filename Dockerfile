@@ -24,11 +24,20 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip uninstall -y opencv-python \
     && pip install --no-cache-dir opencv-python-headless
 
+# OpenVINO runs the same trained models about 2x faster on a CPU, with identical detections.
+RUN pip install --no-cache-dir openvino
+
 COPY backend backend
 COPY vision vision
 COPY db db
 COPY models models
 COPY yolo26n-pose.pt .
+
+# Convert both models to OpenVINO (next to the .pt files). vision/yolo_detector.py uses them
+# whenever there is no Mac GPU. dynamic=True because the code runs three image sizes.
+RUN python -c "from ultralytics import YOLO; \
+[YOLO(m).export(format='openvino', dynamic=True) for m in ('models/basketball_yolo.pt', 'yolo26n-pose.pt')]"
+
 COPY --from=frontend /frontend/dist frontend/dist
 
 CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]

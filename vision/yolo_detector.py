@@ -2,6 +2,20 @@ import torch
 from ultralytics import YOLO
 import time
 import cv2
+from pathlib import Path
+
+
+def model_for_this_machine(model):
+    """Docker and EC2 have no GPU, so use the OpenVINO copy the Docker build made.
+
+    Same trained weights, run by a faster CPU engine (about 2x, identical detections).
+    A Mac keeps the .pt model on its GPU: OpenVINO there uses half precision and its
+    detections drift slightly from the server's.
+    """
+    if torch.backends.mps.is_available():
+        return model
+    openvino_model = model.removesuffix(".pt") + "_openvino_model"
+    return openvino_model if Path(openvino_model).is_dir() else model
 
 
 class YoloDetector():
@@ -18,7 +32,7 @@ class YoloDetector():
         focus_image_size=640,
         focus_skip_confidence=0.45,
     ):
-        self.model = YOLO(model)
+        self.model = YOLO(model_for_this_machine(model), task="detect")
         self.conf = confidence_threshold
         self.device = device
         self.image_size = image_size

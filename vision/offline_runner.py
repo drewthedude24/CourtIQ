@@ -1,7 +1,10 @@
 import json
+import os
+import time
 from pathlib import Path
 
 import cv2 as cv
+import torch
 
 from yolo_detector import YoloDetector
 from pose_detector import PoseDetector
@@ -62,6 +65,13 @@ def serialize(tracked_ball):
 def write_json_line(json_file, frame_record):
     json.dump(frame_record, json_file)
     json_file.write("\n")
+
+
+def lap(timings, stage, start):
+    """Add the seconds since `start` to `stage` and return the current time."""
+    now = time.perf_counter()
+    timings[stage] += now - start
+    return now
 
 
 def get_inference_size(source_width, source_height):
@@ -228,6 +238,14 @@ def process_vid(input_path, output_folder):
         encoding="utf-8",
     )
 
+    # Seconds spent in each part of the loop, summed over all frames (saved to timings.json).
+    timings = dict.fromkeys(
+        ["read_resize", "ball_detector", "pose", "tracking_and_shots",
+         "drawing", "video_write", "json_write"],
+        0.0,
+    )
+    job_start = time.perf_counter()
+
     try:
         with (
             (output_path / "frames.jsonl").open("w", encoding="utf-8") as json_file,
@@ -236,6 +254,13 @@ def process_vid(input_path, output_folder):
             ) as event_file,
         ):
             while True:
+                # Ultralytics lowers PyTorch to min(8, cores - 1) threads the first time a
+                # model runs. In Docker that was the slowest setting: all cores ran both
+                # models 2 to 4x faster. Set every frame, since that first run happens mid-loop.
+                # Not on a Mac with a GPU, where all cores made the pose model slower.
+                if not torch.backends.mps.is_available():
+                    torch.set_num_threads(os.cpu_count())
+                t = time.perf_counter()
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -247,6 +272,7 @@ def process_vid(input_path, output_folder):
                     inference_size,
                     interpolation=cv.INTER_AREA,
                 )
+                t = lap(timings, "read_resize", t)
 
                 focus_regions = []
                 ball_focus_region = ball_tracker.get_focus_region(
@@ -267,12 +293,16 @@ def process_vid(input_path, output_folder):
                     or frame_index % OFFLINE_FULL_FRAME_INTERVAL == 0
                 )
 
+                t = lap(timings, "tracking_and_shots", t)  # picking the focus crops
+
                 _, detections, yolo_fps = yolo_detector.detect_frame_with_fps(
                     inference_frame,
                     focus_regions=focus_regions,
                     run_full_frame=run_full_frame,
                 )
+                t = lap(timings, "ball_detector", t)
                 people = pose_detector.detect(inference_frame)
+                t = lap(timings, "pose", t)
                 tracked_ball = ball_tracker.update(detections)
                 shot_state = shot_detector.update(tracked_ball, people)
                 shot_result = shot_result_detector.update(
@@ -287,6 +317,7 @@ def process_vid(input_path, output_folder):
                         make_count += 1
                     elif shot_result["result"] == "MISS":
                         miss_count += 1
+                t = lap(timings, "tracking_and_shots", t)
 
                 scale_x = frame.shape[1] / inference_size[0]
                 scale_y = frame.shape[0] / inference_size[1]
@@ -310,7 +341,9 @@ def process_vid(input_path, output_folder):
                     make_count,
                     miss_count,
                 )
+                t = lap(timings, "drawing", t)
                 writer.write(output_frame)
+                t = lap(timings, "video_write", t)
 
                 write_json_line(
                     json_file,
@@ -354,6 +387,7 @@ def process_vid(input_path, output_folder):
                     write_json_line(event_file, event_record)
                     shot_events.append(event_record)
                     shot_detector.complete_shot()
+                lap(timings, "json_write", t)
 
                 previous_shot_state = shot_state
                 previous_tracking_status = tracked_ball["tracking_status"]
@@ -361,6 +395,11 @@ def process_vid(input_path, output_folder):
     finally:
         writer.release()
         cap.release()
+
+    timings = {stage: round(seconds, 2) for stage, seconds in timings.items()}
+    timings["total"] = round(time.perf_counter() - job_start, 2)
+    timings["frames"] = frame_index
+    (output_path / "timings.json").write_text(json.dumps(timings, indent=2), encoding="utf-8")
 
     return shot_events
 
