@@ -85,6 +85,17 @@ def mark_failed(session_id, error_message):
         )
 
 
+def delete_session(session_id):
+    # Its shots go too: their foreign key has ON DELETE CASCADE (db/schema.sql).
+    # Returns False when there was no such session.
+    with connect() as connection:
+        deleted = connection.execute(
+            "DELETE FROM sessions WHERE id = %s RETURNING id", (session_id,)
+        ).fetchone()
+        connection.execute("REFRESH MATERIALIZED VIEW monthly_stats")
+    return deleted is not None
+
+
 def get_session(session_id):
     with connect() as connection:
         session = connection.execute(

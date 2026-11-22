@@ -10,9 +10,11 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .database import (
     create_session,
+    delete_session,
     get_session,
     get_stats,
     initialize_database,
@@ -26,6 +28,7 @@ from .database import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOAD_ROOT = PROJECT_ROOT / "storage" / "uploads"
 RESULT_ROOT = PROJECT_ROOT / "storage" / "results"
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 ALLOWED_EXTENSIONS = {".mov", ".mp4", ".m4v"}
 MAX_UPLOAD_BYTES = 1_000_000_000
 WEB_INFERENCE_SIZE = (1280, 720)
@@ -119,7 +122,7 @@ def run_processing_job(session_id, input_path, output_directory):
         if not output_path.exists():
             raise RuntimeError("Vision processing finished without creating annotated.mp4")
         convert_to_h264(output_path)
-        mark_completed(session_id, output_path, events)
+        mark_completed(session_id, output_path.relative_to(PROJECT_ROOT), events)
     except Exception as error:
         traceback.print_exc()
         mark_failed(session_id, str(error))
@@ -165,7 +168,9 @@ async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
     finally:
         await file.close()
 
-    create_session(session_id, original_filename, input_path)
+    # Save paths relative to the project, so they still work when the project folder
+    # lives somewhere else (/app inside Docker, a different folder on EC2).
+    create_session(session_id, original_filename, input_path.relative_to(PROJECT_ROOT))
     background_tasks.add_task(
         run_processing_job,
         session_id,
@@ -200,6 +205,16 @@ def session_status(session_id: str):
     return public_session(session)
 
 
+@app.delete("/api/sessions/{session_id}", status_code=204)
+def remove_session(session_id: str):
+    # The database check comes first, so only a real session id (never something
+    # like "../..") is ever used to build a folder path to delete.
+    if not delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    shutil.rmtree(UPLOAD_ROOT / session_id, ignore_errors=True)
+    shutil.rmtree(RESULT_ROOT / session_id, ignore_errors=True)
+
+
 @app.get("/api/sessions/{session_id}/video")
 def session_video(session_id: str, download: bool = False):
     session = get_session(session_id)
@@ -208,9 +223,15 @@ def session_video(session_id: str, download: bool = False):
     if session["status"] != "COMPLETED" or not session["output_path"]:
         raise HTTPException(status_code=409, detail="Video is not ready")
 
-    output_path = Path(session["output_path"])
+    output_path = PROJECT_ROOT / session["output_path"]
     if not output_path.exists():
         raise HTTPException(status_code=404, detail="Processed video file is missing")
 
     filename = f"courtiq-{session_id}.mp4" if download else None
     return FileResponse(output_path, media_type="video/mp4", filename=filename)
+
+
+# The built React page (`npm run build`). Mounted last so the /api routes above match first.
+# Skipped when there is no build, so `npm run dev` and the tests work without one.
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

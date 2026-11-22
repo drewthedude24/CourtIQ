@@ -1,3 +1,11 @@
+# Stage 1 builds the React page into static files. Node stays out of the final image.
+FROM node:22-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 # ffmpeg converts the annotated video to H.264 so browsers can play it.
@@ -21,5 +29,6 @@ COPY vision vision
 COPY db db
 COPY models models
 COPY yolo26n-pose.pt .
+COPY --from=frontend /frontend/dist frontend/dist
 
 CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
