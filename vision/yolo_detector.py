@@ -9,7 +9,7 @@ class YoloDetector():
     # will need to not hardcode the model directory for best.pt 
     def __init__(
         self,
-        model="runs3/basketball_yolo3/weights/best.pt",
+        model="models/basketball_yolo.pt",
         confidence_threshold=0.6,
         device="mps",
         image_size=512,
