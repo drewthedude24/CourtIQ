@@ -24,13 +24,15 @@ def uploaded_clip(monkeypatch):
     """Upload a fake clip and return its session id.
 
     The real detector takes minutes and ffmpeg needs a real video, so both are
-    replaced: the fake detector writes a tiny annotated.mp4 and reports one make.
+    replaced: the fake detector writes a tiny annotated.mp4 and reports one make
+    with two form numbers measured.
     TestClient finishes the background processing job before the upload returns.
     """
 
     def fake_detector(input_path, output_directory):
         (Path(output_directory) / "annotated.mp4").write_bytes(b"fake video")
-        return [{"result": "MAKE", "timestamp_s": 1.5}]
+        form = {**dict.fromkeys(database.FORM_NUMBERS), "knee_bend_deg": 95.5, "flight_time_s": 1.0}
+        return [{"result": "MAKE", "timestamp_s": 1.5, "form": form}]
 
     monkeypatch.setattr(api, "load_vision_processor", lambda: fake_detector)
     monkeypatch.setattr(api, "convert_to_h264", lambda path: None)
@@ -79,6 +81,24 @@ def test_video_is_found_whatever_folder_the_server_runs_from(uploaded_clip, monk
 
     assert response.status_code == 200
     assert response.content == b"fake video"
+
+
+def test_session_comes_with_form_numbers(uploaded_clip):
+    session = client.get(f"/api/sessions/{uploaded_clip}").json()
+
+    shot = session["shots"][0]
+    assert (shot["knee_bend_deg"], shot["elbow_bend_deg"], shot["flight_time_s"]) == (95.5, None, 1.0)
+    assert session["form"]["makes"]["knee_bend_deg"] == 95.5
+    assert session["form"]["misses"] is None
+
+
+def test_form_trend_has_one_row_per_measured_session(uploaded_clip):
+    response = client.get("/api/stats/form")
+
+    assert response.status_code == 200
+    assert [(row["id"], row["knee_bend_deg"], row["jump"]) for row in response.json()] == [
+        (uploaded_clip, 95.5, None),
+    ]
 
 
 def test_deleting_a_session_removes_only_that_session(uploaded_clip):

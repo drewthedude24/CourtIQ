@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS shots (
     UNIQUE (session_id, shot_number)
 );
 
+-- The shooter's form on each shot (vision/shot_form.py). NULL when a number could not be
+-- measured. Added with ALTER, not inside CREATE TABLE above, so a database made before
+-- these columns existed gets them too.
+ALTER TABLE shots
+    ADD COLUMN IF NOT EXISTS knee_bend_deg  real,
+    ADD COLUMN IF NOT EXISTS elbow_bend_deg real,
+    ADD COLUMN IF NOT EXISTS arm_angle_deg  real,
+    ADD COLUMN IF NOT EXISTS jump           real,
+    ADD COLUMN IF NOT EXISTS flight_time_s  real;
+
 -- Holds every column a per-session make/miss count needs, so Postgres can answer
 -- from this index alone and never open the table (see docs/query-optimization.md).
 CREATE INDEX IF NOT EXISTS shots_session_id_result_idx ON shots (session_id, result);

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .database import (
     create_session,
     delete_session,
+    get_form_trend,
     get_session,
     get_stats,
     initialize_database,
@@ -111,6 +112,7 @@ def public_session(session):
         "error_message": session["error_message"],
         "video_url": video_url,
         "shots": session["shots"],
+        "form": session["form"],
     }
 
 
@@ -200,6 +202,11 @@ def sessions_list(month: str | None = None):
 @app.get("/api/stats")
 def stats():
     return get_stats()
+
+
+@app.get("/api/stats/form")
+def form_trend():
+    return get_form_trend()
 
 
 @app.get("/api/sessions/{session_id}")

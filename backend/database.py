@@ -12,6 +12,10 @@ DATABASE_URL = os.environ.get(
 )
 
 
+# The form numbers measured on each shot (vision/shot_form.py). Each is a column of `shots`.
+FORM_NUMBERS = ("knee_bend_deg", "elbow_bend_deg", "arm_angle_deg", "jump", "flight_time_s")
+
+
 def connect():
     # Leaving a `with connect()` block commits, or rolls back on an error.
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -47,8 +51,9 @@ def mark_completed(session_id, output_path, events):
         with connection.cursor() as cursor:
             cursor.executemany(
                 """
-                INSERT INTO shots (session_id, shot_number, result, timestamp_s, reason)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO shots (session_id, shot_number, result, timestamp_s, reason,
+                                   knee_bend_deg, elbow_bend_deg, arm_angle_deg, jump, flight_time_s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 [
                     (
@@ -57,6 +62,8 @@ def mark_completed(session_id, output_path, events):
                         event["result"],
                         float(event["timestamp_s"]),
                         event.get("reason"),
+                        # A number the detector could not measure is None, which is saved as NULL.
+                        *(event.get("form", {}).get(name) for name in FORM_NUMBERS),
                     )
                     for index, event in enumerate(events, start=1)
                 ],
@@ -115,7 +122,8 @@ def get_session(session_id):
 
         session["shots"] = connection.execute(
             """
-            SELECT shot_number, result, timestamp_s, reason
+            SELECT shot_number, result, timestamp_s, reason,
+                   knee_bend_deg, elbow_bend_deg, arm_angle_deg, jump, flight_time_s
             FROM shots
             WHERE session_id = %s
             ORDER BY shot_number
@@ -123,6 +131,35 @@ def get_session(session_id):
             (session_id,),
         ).fetchall()
 
+        # The average and the spread (how much it changes from shot to shot) of each form
+        # number: one row for makes, one for misses, and ROLLUP adds one for all shots.
+        rows = connection.execute(
+            """
+            SELECT result,
+                   avg(knee_bend_deg)          AS knee_bend_deg,
+                   stddev_samp(knee_bend_deg)  AS knee_bend_deg_spread,
+                   avg(elbow_bend_deg)         AS elbow_bend_deg,
+                   stddev_samp(elbow_bend_deg) AS elbow_bend_deg_spread,
+                   avg(arm_angle_deg)          AS arm_angle_deg,
+                   stddev_samp(arm_angle_deg)  AS arm_angle_deg_spread,
+                   avg(jump)                   AS jump,
+                   stddev_samp(jump)           AS jump_spread,
+                   avg(flight_time_s)          AS flight_time_s,
+                   stddev_samp(flight_time_s)  AS flight_time_s_spread
+            FROM shots
+            WHERE session_id = %s
+            GROUP BY ROLLUP (result)
+            """,
+            (session_id,),
+        ).fetchall()
+
+    # The ROLLUP row's result is NULL. A session with no makes has no MAKE row.
+    by_result = {row.pop("result"): row for row in rows}
+    session["form"] = {
+        "makes": by_result.get("MAKE"),
+        "misses": by_result.get("MISS"),
+        "all": by_result[None],
+    }
     return session
 
 
@@ -148,6 +185,28 @@ def list_sessions(month=None):
             ORDER BY sessions.created_at DESC
             """,
             {"month": month},
+        ).fetchall()
+
+
+def get_form_trend():
+    # Each session's average form numbers, oldest first, to see them change over time.
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT sessions.id, sessions.created_at,
+                   avg(shots.knee_bend_deg)  AS knee_bend_deg,
+                   avg(shots.elbow_bend_deg) AS elbow_bend_deg,
+                   avg(shots.arm_angle_deg)  AS arm_angle_deg,
+                   avg(shots.jump)           AS jump,
+                   avg(shots.flight_time_s)  AS flight_time_s
+            FROM sessions
+            JOIN shots ON shots.session_id = sessions.id
+            GROUP BY sessions.id
+            -- Every measured shot has a flight time, so this leaves out sessions
+            -- that were processed before form was measured.
+            HAVING count(shots.flight_time_s) > 0
+            ORDER BY sessions.created_at
+            """
         ).fetchall()
 
 
