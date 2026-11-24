@@ -200,6 +200,9 @@ def test_session_form_compares_makes_with_misses():
     assert form["misses"]["knee_bend_deg_spread"] is None
     assert form["makes"]["jump"] == 0.25
     assert form["misses"]["jump"] is None
+    # How many shots each average is based on.
+    assert (form["all"]["shots"], form["all"]["knee_bend_deg_shots"], form["all"]["jump_shots"]) == (3, 3, 1)
+    assert (form["misses"]["shots"], form["misses"]["jump_shots"]) == (1, 0)
 
 
 def test_session_form_without_any_makes():
@@ -234,3 +237,10 @@ def test_form_trend_lists_measured_sessions_oldest_first():
         ("newer", 100.0, 1.0, None),
     ]
     assert trend[0]["created_at"] == datetime(2026, 3, 1, 12, tzinfo=timezone.utc)
+    assert trend[0]["original_filename"] == "a.mov"
+    # The spread is how much a number changed from shot to shot inside that session.
+    assert trend[0]["knee_bend_deg_spread"] == pytest.approx(4.24, abs=0.01)
+    assert trend[1]["knee_bend_deg_spread"] is None
+    # "older" has one make and one miss, and neither shot has a jump measured.
+    assert (trend[0]["shots"], trend[0]["knee_bend_deg_shots"], trend[0]["jump_shots"]) == (2, 2, 0)
+    assert (trend[0]["shooting_pct"], trend[1]["shooting_pct"]) == (50.0, 100.0)

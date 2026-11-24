@@ -250,6 +250,18 @@ tfoot td {
 
 .num {
   text-align: right;
+  white-space: nowrap;
+}
+
+/* A shot's number that is far from the session's average. */
+.odd {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The line under a heading that says what the columns mean. */
+.caption {
+  margin-bottom: 12px;
 }
 
 .clip {
@@ -282,6 +294,68 @@ tr.selected:hover {
 tr.selected .clip button {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* Form by session: a row of small line charts, one per form number, across the full width. */
+.form-trend {
+  grid-column: 1 / -1;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+figure {
+  margin: 0;
+}
+
+figcaption {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+figure svg {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trend-spread {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+/* The ring in the page colour keeps a dot readable where it sits on the line or a bar. */
+.trend-dot {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+
+.trend-value,
+.trend-name {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-value {
+  fill: var(--text);
+}
+
+.trend-name {
+  fill: var(--muted);
 }
 
 /* Phone: one column, in reading order (video, shots, sessions, stats). */

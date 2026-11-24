@@ -1,7 +1,8 @@
 import { useEffect, useState, type ChangeEvent } from "react";
+import FormTrend from "./FormTrend";
 import SessionsTable from "./SessionsTable";
 import StatsPanel from "./StatsPanel";
-import type { Session, SessionStatus, SessionSummary, Stats } from "./types";
+import type { FormTrendRow, Session, SessionStatus, SessionSummary, Stats } from "./types";
 import Viewer from "./Viewer";
 
 const PENDING_STATUSES = new Set<SessionStatus>(["QUEUED", "PROCESSING"]);
@@ -12,10 +13,12 @@ export default function App() {
   const [failed, setFailed] = useState(false);
   const [history, setHistory] = useState<SessionSummary[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [formTrend, setFormTrend] = useState<FormTrendRow[]>([]);
 
   function loadTables() {
     fetch("/api/sessions").then((response) => response.json()).then(setHistory);
     fetch("/api/stats").then((response) => response.json()).then(setStats);
+    fetch("/api/stats/form").then((response) => response.json()).then(setFormTrend);
   }
 
   // Load the sessions list and stats when the page opens, and again whenever the
@@ -140,6 +143,7 @@ export default function App() {
             onDelete={deleteSession}
           />
           <StatsPanel stats={stats} />
+          <FormTrend rows={formTrend} />
         </div>
       </main>
     </>
