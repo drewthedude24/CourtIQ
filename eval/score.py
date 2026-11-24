@@ -3,8 +3,14 @@
 Run from the project root:  python -m eval.score
 Reads eval/labels.csv (clip,time_s,result), runs the detector on each clip in video/
 with the same settings as the website, and prints a results table.
+
+python -m eval.score --replay  skips the video and YOLO: it re-runs only the shot rules on
+the detections a full run saved in eval/output/. Seconds instead of minutes, for trying
+rule changes. Reported numbers always come from a full run.
 """
 import csv
+import json
+import sys
 import time
 from pathlib import Path
 
@@ -40,21 +46,44 @@ def match_shots(labels, detections):
     return pairs, missed, false
 
 
+def replay(clip):
+    """Shot events from the detections saved for this clip, without touching the video."""
+    from vision.rim_shot_detector import RimShotDetector
+
+    detector = RimShotDetector()
+    with (OUTPUT_DIR / Path(clip).stem / "frames.jsonl").open() as f:
+        frames = [json.loads(line) for line in f]
+    results = [detector.update(frame["detections"], frame["timestamp_s"]) for frame in frames]
+    results.append(detector.finish())
+    return [
+        {"timestamp_s": result["shot_time_s"], "result": result["result"]}
+        for result in results
+        if result and result["event"]
+    ]
+
+
 def main():
-    # Imported here so the tests can use match_shots without a database or models.
-    from backend.app import load_vision_processor
+    if "--replay" in sys.argv:
+        run_detector = replay
+    else:
+        # Imported here so the tests can use match_shots without a database or models.
+        from backend.app import load_vision_processor
+
+        process_vid = load_vision_processor()
+
+        def run_detector(clip):
+            print(f"Running the detector on {clip}...")
+            return process_vid(str(VIDEO_DIR / clip), str(OUTPUT_DIR / Path(clip).stem))
 
     labels = {}
     with LABELS_PATH.open() as f:
         for row in csv.DictReader(f):
             labels.setdefault(row["clip"], []).append((float(row["time_s"]), row["result"].upper()))
 
-    process_vid = load_vision_processor()
     start = time.perf_counter()
     rows = []
     for clip, clip_labels in labels.items():
-        print(f"Running the detector on {clip}...")
-        events = process_vid(str(VIDEO_DIR / clip), str(OUTPUT_DIR / Path(clip).stem))
+        events = run_detector(clip)
         detections = [(event["timestamp_s"], event["result"]) for event in events]
         pairs, missed, false = match_shots(clip_labels, detections)
 

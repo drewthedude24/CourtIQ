@@ -31,12 +31,11 @@ COPY backend backend
 COPY vision vision
 COPY db db
 COPY models models
-COPY yolo26n-pose.pt .
 
-# Convert both models to OpenVINO (next to the .pt files). vision/yolo_detector.py uses them
-# whenever there is no Mac GPU. dynamic=True because the code runs three image sizes.
+# Convert the model to OpenVINO (next to the .pt file). vision/yolo_detector.py uses it
+# whenever there is no Mac GPU. dynamic=True because the code runs two image sizes.
 RUN python -c "from ultralytics import YOLO; \
-[YOLO(m).export(format='openvino', dynamic=True) for m in ('models/basketball_yolo.pt', 'yolo26n-pose.pt')]"
+YOLO('models/basketball_yolo.pt').export(format='openvino', dynamic=True)"
 
 COPY --from=frontend /frontend/dist frontend/dist
 

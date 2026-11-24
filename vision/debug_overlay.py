@@ -125,7 +125,7 @@ def _draw_shot_result(annotated_frame, shot_result):
         color = (0, 0, 255)
         scale = 2.6
     else:
-        label = "Result: waiting for release"
+        label = "Result: waiting for a shot"
         color = (200, 200, 200)
         scale = 0.8
 
