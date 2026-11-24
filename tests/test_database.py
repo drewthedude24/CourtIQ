@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 
 import psycopg
 import pytest
@@ -12,6 +12,14 @@ EVENTS = [
     {"result": "MISS", "timestamp_s": 3.0},
     {"result": "MAKE", "timestamp_s": 4.25, "reason": "swish"},
 ]
+NO_FORM = dict.fromkeys(database.FORM_NUMBERS)
+
+
+def shot_with_form(result, **numbers):
+    """A detector event whose form block holds the given numbers and leaves the rest empty."""
+    # The detector's form block also carries these three, which are not saved.
+    form = {**NO_FORM, **numbers, "release_s": 1.0, "bend_s": 0.7, "arm": "right"}
+    return {"result": result, "timestamp_s": 2.0, "form": form}
 
 
 def run_sql(sql, params=()):
@@ -53,10 +61,25 @@ def test_completed_session_has_ordered_shots_and_counts():
     assert session["completed_at"] is not None
     assert (session["makes"], session["misses"]) == (2, 1)
     assert session["shots"] == [
-        {"shot_number": 1, "result": "MAKE", "timestamp_s": 1.5, "reason": "through rim"},
-        {"shot_number": 2, "result": "MISS", "timestamp_s": 3.0, "reason": None},
-        {"shot_number": 3, "result": "MAKE", "timestamp_s": 4.25, "reason": "swish"},
+        {"shot_number": 1, "result": "MAKE", "timestamp_s": 1.5, "reason": "through rim", **NO_FORM},
+        {"shot_number": 2, "result": "MISS", "timestamp_s": 3.0, "reason": None, **NO_FORM},
+        {"shot_number": 3, "result": "MAKE", "timestamp_s": 4.25, "reason": "swish", **NO_FORM},
     ]
+
+
+def test_form_numbers_are_saved_with_each_shot():
+    database.create_session("s1", "clip.mov", "/uploads/s1/input.mov")
+    measured = shot_with_form("MAKE", knee_bend_deg=95.5, arm_angle_deg=48.25, jump=0.25, flight_time_s=1.0)
+    database.mark_completed("s1", "/results/s1/annotated.mp4", [measured, EVENTS[1]])
+
+    first, second = database.get_session("s1")["shots"]
+
+    # The elbow was hidden on the first shot, and the second shot has no form block at all.
+    assert {name: first[name] for name in database.FORM_NUMBERS} == {
+        "knee_bend_deg": 95.5, "elbow_bend_deg": None, "arm_angle_deg": 48.25,
+        "jump": 0.25, "flight_time_s": 1.0,
+    }
+    assert {name: second[name] for name in database.FORM_NUMBERS} == NO_FORM
 
 
 def test_completing_again_replaces_old_shots():
@@ -155,3 +178,59 @@ def test_stats_with_no_shots():
         "overall": {"makes": 0, "misses": 0, "shooting_pct": None},
         "months": [],
     }
+
+
+def test_session_form_compares_makes_with_misses():
+    database.create_session("s1", "clip.mov", "/uploads/s1/input.mov")
+    database.mark_completed("s1", "/results/s1/annotated.mp4", [
+        shot_with_form("MAKE", knee_bend_deg=90, jump=0.25),
+        shot_with_form("MAKE", knee_bend_deg=100),
+        shot_with_form("MISS", knee_bend_deg=110),
+    ])
+
+    form = database.get_session("s1")["form"]
+
+    assert form["makes"]["knee_bend_deg"] == 95.0
+    assert form["misses"]["knee_bend_deg"] == 110.0
+    assert form["all"]["knee_bend_deg"] == 100.0
+    # Spread is how much the number changes from shot to shot (the standard deviation).
+    assert form["makes"]["knee_bend_deg_spread"] == pytest.approx(7.07, abs=0.01)
+    assert form["all"]["knee_bend_deg_spread"] == pytest.approx(10.0)
+    # One shot has no spread, and a number measured on no shot has no average.
+    assert form["misses"]["knee_bend_deg_spread"] is None
+    assert form["makes"]["jump"] == 0.25
+    assert form["misses"]["jump"] is None
+
+
+def test_session_form_without_any_makes():
+    database.create_session("s1", "clip.mov", "/uploads/s1/input.mov")
+    database.mark_completed("s1", "/results/s1/annotated.mp4", [shot_with_form("MISS", jump=0.5)])
+
+    form = database.get_session("s1")["form"]
+
+    assert form["makes"] is None
+    assert form["misses"]["jump"] == 0.5
+    assert form["all"]["jump"] == 0.5
+
+
+def test_form_trend_lists_measured_sessions_oldest_first():
+    for session_id, created_at, events in [
+        ("newer", "2026-03-02 12:00+00", [shot_with_form("MAKE", knee_bend_deg=100, flight_time_s=1.0)]),
+        ("older", "2026-03-01 12:00+00", [
+            shot_with_form("MAKE", knee_bend_deg=90, flight_time_s=1.0),
+            shot_with_form("MISS", knee_bend_deg=96, flight_time_s=1.5),
+        ]),
+        # Processed before form was measured: its shots have no numbers, so it is left out.
+        ("no_form", "2026-03-03 12:00+00", EVENTS),
+    ]:
+        database.create_session(session_id, "a.mov", f"/uploads/{session_id}/input.mov")
+        run_sql("UPDATE sessions SET created_at = %s WHERE id = %s", (created_at, session_id))
+        database.mark_completed(session_id, f"/results/{session_id}/annotated.mp4", events)
+
+    trend = database.get_form_trend()
+
+    assert [(row["id"], row["knee_bend_deg"], row["flight_time_s"], row["jump"]) for row in trend] == [
+        ("older", 93.0, 1.25, None),
+        ("newer", 100.0, 1.0, None),
+    ]
+    assert trend[0]["created_at"] == datetime(2026, 3, 1, 12, tzinfo=timezone.utc)
