@@ -20,3 +20,6 @@ storage/results/*/
 # Frontend build
 frontend/node_modules/
 frontend/dist/
+
+# Eval clips are too big for git. The 4 older clips in video/ were committed before this.
+video/*
