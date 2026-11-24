@@ -1,3 +1,5 @@
+import pytest
+
 from vision.rim_shot_detector import RimShotDetector
 
 FPS = 30
@@ -164,6 +166,67 @@ def test_ball_hidden_by_the_net_then_dropping_out_below_is_a_make():
     events = play(RimShotDetector(), ARC_TO_RIM + out_under_the_net)
 
     assert [event["result"] for event in events] == ["MAKE"]
+
+
+def test_ball_falling_behind_the_rim_after_a_small_bounce_is_a_miss():
+    # Pops up 0.45 hoop-heights off the rim, then drops straight down behind the rim,
+    # where the camera sees it through the net exactly like a make.
+    pop_up = [(330, 385), (330, 375), (330, 373), (330, 380)]
+
+    events = play(RimShotDetector(), ARC_TO_RIM + pop_up + THROUGH_NET + NO_BALL)
+
+    assert [event["result"] for event in events] == ["MISS"]
+    assert events[0]["reason"] == "ball bounced up off the rim"
+
+
+def test_ball_bouncing_high_then_dropping_behind_the_backboard_is_a_miss():
+    # Bounces about 1.8 hoop-heights up, is hidden by the backboard on the way down, and is
+    # first seen again just under the net, over a second after reaching the rim.
+    up = [(330, 360), (330, 330), (330, 300), (330, 290)]
+    hidden = [None] * 24
+    under_the_net = [(330, 465), (330, 490), (330, 515)]
+
+    events = play(RimShotDetector(), ARC_TO_RIM + up + hidden + under_the_net + NO_BALL)
+
+    assert [event["result"] for event in events] == ["MISS"]
+
+
+def test_ball_rolling_on_the_rim_then_dropping_in_is_still_a_make():
+    # Rolling on the rim keeps the ball's centre about one ball radius (0.25 hoop-heights) above the rim line.
+    roll = [(320 + 2 * i, 385) for i in range(10)]
+
+    events = play(RimShotDetector(), ARC_TO_RIM + roll + THROUGH_NET)
+
+    assert [event["result"] for event in events] == ["MAKE"]
+
+
+def test_slices_of_a_ball_leaving_the_picture_are_not_seen_below_the_rim():
+    # The hoop is at the right edge of the picture. The ball drops past the right side of the rim
+    # and out of the picture, so YOLO only boxes thin slices of it.
+    detector = RimShotDetector()
+    slices = [
+        {"class_id": 0, "confidence": 0.5, "bbox": (346, 420, 360, 456), "center": (353, 438)},
+        {"class_id": 0, "confidence": 0.3, "bbox": (352, 440, 360, 476), "center": (356, 458)},
+    ]
+
+    events = play(detector, ARC_TO_RIM)
+    for i, ball_slice in enumerate(slices):
+        result = detector.update([hoop(), ball_slice], (4 + i) / FPS)
+        events += [result] if result["event"] else []
+    events += play(detector, NO_BALL, start_s=6 / FPS)
+
+    assert [event["result"] for event in events] == ["MISS"]
+
+
+@pytest.mark.xfail(strict=True, reason="Known gap: looks the same as a make that leaves the net sideways.")
+def test_ball_seen_twice_at_the_edge_on_the_way_out_is_a_miss():
+    # Goes long and right off the back of the rim and drops down the outside of the net, moving
+    # outward fast. The whole ball is in view, so its sightings look like a make leaving the net sideways.
+    out_the_side = [(345, 430), (354, 442), (363, 455), (372, 470), (381, 485)]
+
+    events = play(RimShotDetector(), ARC_TO_RIM + out_the_side + NO_BALL)
+
+    assert [event["result"] for event in events] == ["MISS"]
 
 
 def test_shot_still_being_watched_when_the_video_ends_is_reported():

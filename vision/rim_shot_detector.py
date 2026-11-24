@@ -27,13 +27,24 @@ WATCH_S = 1.5
 UNDER_NET = 1.0
 # One sighting below the rim can be a stray detection. Two is a make.
 MAKE_SIGHTINGS = 2
+# A whole ball is about half a hoop-width wide. A narrower box is only a slice of a ball, such as
+# one leaving the edge of the picture, so it doesn't count as the ball below the rim.
+MIN_BALL_WIDTH = 0.3
+# A ball rolling on the rim has its centre about one ball radius (0.25 hoop-heights) above the rim line.
+# Higher than this after reaching the rim, it bounced. The camera can't tell if a bounced ball then
+# drops through the net or behind it, and in the test clips those drops were all misses.
+BOUNCE_ABOVE_RIM = 0.3
 # A rim bounce can drop the ball onto the rim again, so wait before counting a new shot.
 COOLDOWN_S = 2.0
 # How long MAKE or MISS stays on the video.
 RESULT_DISPLAY_S = 4.0
 # The rim line is steadied with the median of this many hoop boxes (about a second of video).
 HOOP_HISTORY = 30
-REASONS = {"MAKE": "ball seen below the rim", "MISS": "ball not seen below the rim"}
+REASONS = {
+    "MAKE": "ball seen below the rim",
+    "MISS": "ball not seen below the rim",
+    "BOUNCE": "ball bounced up off the rim",
+}
 
 
 class RimShotDetector:
@@ -51,12 +62,14 @@ class RimShotDetector:
         """Take one frame's YOLO detections. Returns the shot status for that frame."""
         self._update_hoop(detections)
         hoop = self._hoop_box()
-        event = None
+        event = reason = None
         if hoop is not None:
-            below_rim = self._read_balls(detections, hoop, timestamp_s)
+            below_rim, bounced = self._read_balls(detections, hoop, timestamp_s)
             if self.watching:
                 self.sightings_below_rim += below_rim
-                if self.sightings_below_rim >= MAKE_SIGHTINGS:
+                if bounced:
+                    event, reason = "MISS", REASONS["BOUNCE"]
+                elif self.sightings_below_rim >= MAKE_SIGHTINGS:
                     event = "MAKE"
                 elif timestamp_s - self.shot_time_s >= WATCH_S:
                     event = "MISS"
@@ -79,7 +92,7 @@ class RimShotDetector:
             "result": event,
             "shot_id": self.shot_id or None,
             "shot_time_s": self.shot_time_s,
-            "reason": event and REASONS[event],
+            "reason": event and (reason or REASONS[event]),
             "hoop_bbox": hoop and [round(value, 2) for value in hoop],
             # The overlay draws the rim line from these two.
             "rim_center": hoop and [round((hoop[0] + hoop[2]) / 2, 2), round(hoop[1], 2)],
@@ -93,18 +106,22 @@ class RimShotDetector:
         return self.update([], self.shot_time_s + WATCH_S)
 
     def _read_balls(self, detections, hoop, timestamp_s):
-        """Note balls high above the rim, start a shot when one reaches the rim, and
-        return True if a ball is straight below the rim."""
+        """Note balls high above the rim and start a shot when one reaches the rim.
+        Returns (a ball is straight below the rim, the ball bounced up off the rim)."""
         left, top, right, bottom = hoop
         width, height = right - left, bottom - top
         centre_x = (left + right) / 2
-        below_rim = False
+        below_rim = bounced = False
         for detection in detections:
             if detection["class_id"] != 0:
                 continue
             ball_x, ball_y = detection["center"]
-            _, ball_top, _, ball_bottom = detection["bbox"]
+            ball_left, ball_top, ball_right, ball_bottom = detection["bbox"]
             side = abs(ball_x - centre_x) / width
+
+            # Checked before a shot can start, so the frame the ball arrives on never counts as a bounce.
+            if self.watching and ball_y <= top - BOUNCE_ABOVE_RIM * height and side <= RIM_SIDE_LIMIT:
+                bounced = True
 
             if ball_y <= top - HIGH_ABOVE_RIM * height and side <= HIGH_SIDE_LIMIT:
                 self.last_high_s = timestamp_s
@@ -122,9 +139,12 @@ class RimShotDetector:
                 self.last_high_s = None
 
             # Straight below the rim: centre within the hoop box's width, the whole ball under the rim line.
-            if left <= ball_x <= right and ball_top >= top and ball_y <= bottom + UNDER_NET * height:
+            if (
+                left <= ball_x <= right and ball_top >= top and ball_y <= bottom + UNDER_NET * height
+                and ball_right - ball_left >= MIN_BALL_WIDTH * width
+            ):
                 below_rim = True
-        return below_rim
+        return below_rim, bounced
 
     def _shot_can_start(self, timestamp_s):
         came_from_above = self.last_high_s is not None and timestamp_s - self.last_high_s <= FALL_TIME_S
