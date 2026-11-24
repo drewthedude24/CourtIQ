@@ -1,8 +1,13 @@
 # Shot form: which numbers can be measured from behind
 
 Measured 2026-11-24 on the 6 labeled clips (63 shots), all filmed by hand from behind the
-shooter at 30 fps. Reproduce with `python -m eval.form` (about 3.5 minutes on the Mac), or
-`python -m eval.form --replay` to recompute from the saved keypoints in seconds.
+shooter at 30 fps.
+
+- The comparison below (two pose models, several ways to measure each number) was made with
+  the first version of `eval/form.py`. To rerun it, check out commit `1822971` and run
+  `python -m eval.form`.
+- The five kept numbers now come from the real pipeline. Their current figures are in
+  [In the real pipeline](#in-the-real-pipeline) at the end.
 
 ## What was tested
 
@@ -107,7 +112,8 @@ The elbow rows above were recomputed with `--replay` from the same run's saved k
 - **The elbow needs it.** Only its 3D points give a usable elbow from behind.
 - **It did not fix the knee or the arm.** Its 3D knee (152°) is almost the same as its own
   flat knee (agreement 0.89), and its 3D arm (81°) is close to the flat arm (86°).
-- **Open for Stage B: one pose model or two.** MediaPipe's keypoints also pass the bar for
+- **One pose model, not two.** Since the elbow needs MediaPipe anyway, the pipeline uses
+  MediaPipe's keypoints for all five numbers (Andrew's call). They also pass the bar for
   knee, jump and flight time. For the arm they miss it by a hair (wiggle 1.25 against a
   limit of 1.245), and only because that version is steadier shot to shot (spread 2.5
   against YOLO's 3.9). On this Mac, MediaPipe takes about 12 ms a frame and YOLO pose 18 ms.
@@ -138,7 +144,7 @@ has the ball one to two ball-widths off the hand, and the shooting arm is the ri
   independent to check it against.
 - **The release** is about one frame late: the hand follows the ball for a moment.
 - **Not measured:** `s4` at 8.8 s (the ball track is lost, the same shot the detector
-  struggles with), the arm on `r1` at 63.1 s, the jump on `s3` at 80.5 s (the clip ends).
+  struggles with) and the jump on `s3` at 80.5 s (the clip ends).
 - All 63 shots are one camera style and at most two shooters.
 
 ## Makes vs misses (a hint, not a finding)
@@ -161,3 +167,109 @@ The first table gave a 0.3 s flight time and an arm pointing down at the release
 detector sometimes marks the shooter's lowered hand or shoe as a ball after the shot, and
 the first release rule took that as the ball being held again. The rule now follows the one
 real ball backward from the rim to the hand (`find_release` in `vision/shot_form.py`).
+
+## In the real pipeline
+
+`process_vid` now measures form itself. After the shots are found, it goes back over the
+video and runs MediaPipe on only the 2.5 s before each shot (`add_form` in
+`vision/offline_runner.py`), then adds a `form` block to each shot event. The keypoints
+are saved to `pose.jsonl` next to `frames.jsonl`.
+
+Reproduce: a full run in Docker, then the form table from what that run saved.
+
+    docker compose up -d --wait db
+    docker compose run --rm -v ./eval:/app/eval -v ./video:/app/video api python -m eval.score
+    python -m eval.form
+
+Full Docker run, 6 clips, 2026-11-24. The form numbers were worked out again from that run's
+saved files after the fix in [Two shots the ball rule got wrong](#two-shots-the-ball-rule-got-wrong):
+
+| Number | Shots measured | Average | Spread | Wiggle | Makes | Misses |
+|---|---|---|---|---|---|---|
+| Knee bend (°) | 62 of 63 | 98.7 | 4.7 | 2.0 | 96.2 | 101.5 |
+| Elbow bend (°) | 43 of 63 | 63.2 | 3.7 | 3.0 | 63.2 | 63.1 |
+| Arm angle at release (°) | 62 of 63 | 46.9 | 2.5 | 1.27 | 46.1 | 47.8 |
+| Jump (shoulder-heights) | 61 of 63 | 0.25 | 0.02 | 0.01 | 0.26 | 0.24 |
+| Flight time (s) | 62 of 63 | 1.07 | 0.05 | 0.03 | 1.10 | 1.05 |
+
+- **Close to the comparison.** The MediaPipe rows above gave knee 99.0, arm 46.8, jump 0.25,
+  flight 1.06 and elbow 63.3 on 41 shots. The small differences are MediaPipe on Linux
+  against MediaPipe on the Mac, and the one shot fixed below.
+- **The detector is unchanged:** 63 of 63 found, 61 fully correct, 0 false.
+- **The elbow's wiggle (3.0°) is close to its spread (3.7°).** Its average is steady, but a
+  difference of a few degrees between two shots means nothing.
+
+### What it costs
+
+| | Before | With form |
+|---|---|---|
+| Docker run, 6 clips (7.9 minutes of video) | about 380 s | 608 s |
+| Docker image | 2.8 GB | 3.04 GB |
+
+- The form pass took 228 s of the 608 s: 4,719 pose frames at about 48 ms each. The same
+  model takes about 12 ms a frame on the Mac outside Docker.
+- "Before" is this same run minus its form pass. The 440 s in `docs/detector-results.md` is an
+  older single run, and run times here swing a lot with what else the laptop is doing.
+- On `longvid.mov` on the Mac: 7 s of a 37 s run.
+
+### Faster options that were tried
+
+Decision (2026-11-24): keep the heavy model on every frame in a second pass. Each faster option
+loses the elbow.
+
+Each option was run on the same frames and compared shot by shot with the heavy model, on 69
+shots (the 63 labeled plus `longvid.mov`'s 6). Pose time is from a 150-frame timing test in
+Docker. The run times are estimates from that test, not full runs.
+
+| Option | Pose time per frame in Docker | Six-clip run | Shots measured | What changes |
+|---|---|---|---|---|
+| Heavy model, every frame (kept) | 43 ms | 608 s (measured) | 68 of 69 | |
+| Full model | 11 ms | about 454 s | 67 of 69 | Knee, arm, jump and flight follow the heavy model (r 0.85 to 0.99). The elbow does not: 89° against 62°, r 0.19. |
+| Lite model | 7 ms | about 440 s | 38 of 69 | Fails: the wrists are seen too rarely to find the release. |
+| Heavy model, every other frame | 43 ms on half the frames | about 505 s | 66 of 69 | Knee reads 3° shallower. The elbow stops following the every-frame value (r 0.39). |
+
+- **Why Docker is slower than the Mac.** Not a Docker setting: the image runs natively on arm64
+  with all 15 cores and the same MediaPipe version, and reading the video is fast. The model
+  uses one CPU core in both places. The Mac's chip has matrix instructions (SME2) that the Linux
+  machine inside Docker does not get, which is the likely cause but is not proven. A server will
+  not have them either, so the Docker speed is the realistic one.
+- **No second pass.** A shot is only known about a second after the release, so pose in the first
+  pass means pose on every frame: 2,308 frames on `s1` against 750. That is about 100 s with the
+  heavy model against 36 s now. YOLO's pose model on every frame takes about 34 s on `s1` (15 ms a
+  frame) and cannot give the elbow. Keeping recent frames in memory and running pose when a shot
+  fires would save about 4 s a clip and need about 330 MB of memory.
+
+### Two shots the ball rule got wrong
+
+The first pipeline run left one `longvid.mov` shot empty and gave one labeled shot wrong numbers.
+Both came from where the walk back to the hand started.
+
+- **The net hid the ball** (`longvid.mov`, the make at 19.3 s). The ball was last seen just
+  above the rim and next seen under the net 0.56 s later, which is when the detector says the
+  shot happened. The walk started there and gave up, because the ball was missing for more
+  than 0.15 s.
+- **The hoop box was on the wrong object** (`r1` at 63.1 s). The walk started from the ball
+  nearest that frame's hoop box. In about 7% of frames the box is not on the hoop, and here that
+  picked the shooter's hand. The shot was saved with a 0.0 s flight time and a 142° knee bend.
+
+Now the walk starts from the ball sighting closest to the rim in the second before the detector's
+shot time (`find_arrival` in `vision/shot_form.py`), using the detector's steadied rim, which stays
+on the real hoop. If that sighting is more than 0.15 s before the shot time, the shot time is
+late and the flight time ends at the sighting.
+
+- `longvid.mov`: 6 of 6 shots measured, was 5 of 6.
+- `r1` at 63.1 s: flight 0.83 s, knee 113°, and its elbow and arm are now measured.
+- The other 62 labeled shots: no number changed.
+- The one-second look-back is not tuned: any value from 0.75 to 2.0 s gives the same numbers on
+  all 69 shots. Below 0.56 s the `longvid.mov` shot goes empty again.
+- Both cases were found on these clips, so this is a fix checked on the clips that showed the
+  problem, not on new ones.
+- The jump still reads each frame's own hoop box, to follow the camera as it tilts.
+
+### A clip the rules never saw
+
+`longvid.mov` was not used to choose the five numbers or how they are measured. Uploaded through
+the API in Docker, all 6 of its shots got all five numbers: knee 93 to 105°, elbow 41 to 59°,
+arm 48 to 53°, jump 0.21 to 0.23, flight 1.07 to 1.17 s. The Mac gives the same within 3°. That
+upload took 60 s, 22 s of it the form pass. The first run measured 5 of the 6. The sixth needed
+the fix above, so that one shot is no longer unseen.

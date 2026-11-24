@@ -1,40 +1,28 @@
-"""Compare ways of measuring shot form on the labeled clips, before any of them goes in the app.
+"""Check how steady the shot form numbers are on the labeled clips.
 
-Run from the project root:  python -m eval.form
-Needs the detections a full `python -m eval.score` run saved in eval/output/. For each labeled
-shot it runs two pose models on the 2.5 seconds before the ball reaches the rim, saves their
-keypoints next to those detections, and prints how steady each form number is.
+Run from the project root, after a full `python -m eval.score` run:  python -m eval.form
+That run saves, for each clip in eval/output/, the detections (frames.jsonl) and the pose
+keypoints from the frames before each shot (pose.jsonl). This script recomputes the form
+numbers from those files, so a change to vision/shot_form.py can be tried in seconds.
 
-python -m eval.form --replay  skips the video and the pose models: it recomputes the numbers
-from the saved keypoints in seconds, for trying changes to vision/shot_form.py.
+It prints, for each number: on how many shots it was measured, its average, how much it changes
+from shot to shot inside one clip (spread), and how much it changes when only the even or only
+the odd frames are used (wiggle). It also writes eval/output/<clip>/form_sheet.jpg: each shot's
+deepest-bend frame and release frame with the skeleton drawn, for checking by eye.
+
+The first version of this script compared two pose models and several ways of measuring each
+number. That comparison is in docs/form-results.md and can be rerun from commit 1822971.
 """
 import csv
 import json
-import sys
-from itertools import combinations
 from pathlib import Path
-from statistics import correlation, mean, median, stdev
+from statistics import mean, median, stdev
 
 import cv2 as cv
 
-from eval.score import LABELS_PATH, OUTPUT_DIR, PROJECT_ROOT, VIDEO_DIR, match_shots, replay
-from vision.shot_form import NUMBERS, SEEN, measure
+from eval.score import LABELS_PATH, OUTPUT_DIR, VIDEO_DIR, match_shots, replay
+from vision.shot_form import FORM_WINDOW_S, NUMBERS, SEEN, ball_and_hoop, measure
 
-WINDOW_S = 2.5
-SOURCES = ("yolo", "mediapipe")
-YOLO_MODEL = PROJECT_ROOT / "yolo26n-pose.pt"
-MEDIAPIPE_MODEL = OUTPUT_DIR / "pose_landmarker_heavy.task"
-# Both models number their joints in this order: left then right, shoulder down to ankle.
-JOINTS = [
-    f"{side}_{part}"
-    for part in ("shoulder", "elbow", "wrist", "hip", "knee", "ankle")
-    for side in ("left", "right")
-]
-YOLO_INDEXES = range(5, 17)
-MEDIAPIPE_INDEXES = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
-# The bar a number must clear to be kept, set before looking at any results.
-MIN_COVERAGE = 0.9
-MAX_WIGGLE_OF_SPREAD = 0.5
 BONES = [("shoulder", "elbow"), ("elbow", "wrist"), ("shoulder", "hip"), ("hip", "knee"), ("knee", "ankle")]
 
 
@@ -52,128 +40,39 @@ def labeled_shots():
     return shots
 
 
-def saved_detections(clip):
-    """One entry per video frame: its time, the balls seen and the rim line, from the saved run."""
+def pose_frames(clip):
+    """The frames the pipeline ran the pose model on, ready for measure(), in time order."""
+    folder = OUTPUT_DIR / Path(clip).stem
+    with (folder / "frames.jsonl").open() as f:
+        records = [json.loads(line) for line in f]
     frames = []
-    with (OUTPUT_DIR / Path(clip).stem / "frames.jsonl").open() as f:
+    with (folder / "pose.jsonl").open() as f:
         for line in f:
-            record = json.loads(line)
-            balls = [d for d in record["detections"] if d["class_id"] == 0]
-            hoops = [d for d in record["detections"] if d["class_id"] == 1]
-            hoop = max(hoops, key=lambda d: d["confidence"]) if hoops else None
+            pose = json.loads(line)
+            record = records[pose["frame_index"]]
             frames.append({
-                "t": record["timestamp_s"],
-                "balls": [(*d["center"], d["bbox"][2] - d["bbox"][0]) for d in balls],
-                # The top edge of the hoop box is the rim line.
-                "hoop": (hoop["center"][0], hoop["bbox"][1]) if hoop else None,
+                "t": record["timestamp_s"], **ball_and_hoop(record["detections"]),
+                "rim": record["shot_result"]["rim_center"],
+                "index": pose["frame_index"], "points": pose["points"], "world": pose["world"],
             })
     return frames
 
 
-def yolo_pose():
-    from ultralytics import YOLO
-
-    model = YOLO(str(YOLO_MODEL))
-
-    def keypoints(frame, _time_ms):
-        result = model.predict(frame, imgsz=640, verbose=False)[0]
-        if result.boxes is None or len(result.boxes) == 0:
-            return {}, None
-        # The clips have one person. With more, the biggest is the one nearest the camera.
-        boxes = result.boxes.xyxy
-        biggest = int(((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])).argmax())
-        xy = result.keypoints.xy[biggest].tolist()
-        confidence = result.keypoints.conf[biggest].tolist()
-        return {name: [*xy[i], confidence[i]] for name, i in zip(JOINTS, YOLO_INDEXES)}, None
-
-    return keypoints
-
-
-def mediapipe_pose():
-    import mediapipe as mp
-    from mediapipe.tasks import python as tasks
-    from mediapipe.tasks.python import vision
-
-    landmarker = vision.PoseLandmarker.create_from_options(vision.PoseLandmarkerOptions(
-        base_options=tasks.BaseOptions(model_asset_path=str(MEDIAPIPE_MODEL)),
-        running_mode=vision.RunningMode.VIDEO,
-    ))
-
-    def keypoints(frame, time_ms):
-        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv.cvtColor(frame, cv.COLOR_BGR2RGB))
-        result = landmarker.detect_for_video(image, time_ms)
-        if not result.pose_landmarks:
-            return {}, None
-        height, width = frame.shape[:2]
-        flat, world = result.pose_landmarks[0], result.pose_world_landmarks[0]
-        points = {
-            name: [flat[i].x * width, flat[i].y * height, flat[i].visibility]
-            for name, i in zip(JOINTS, MEDIAPIPE_INDEXES)
-        }
-        return points, {name: [world[i].x, world[i].y, world[i].z] for name, i in zip(JOINTS, MEDIAPIPE_INDEXES)}
-
-    return keypoints
-
-
-def clip_frames(clip, wanted):
-    """Yield (frame index, picture at the detector's size) for the wanted frames of a clip."""
+def write_sheet(clip, picks):
+    """picks is a list of (frame, lines of text to print on it) in the order they should appear."""
     folder = OUTPUT_DIR / Path(clip).stem
     size = tuple(json.loads((folder / "configuration.json").read_text())["inference_resolution"])
+    by_index = {frame["index"]: (frame, label) for frame, label in picks}
     cap = cv.VideoCapture(str(VIDEO_DIR / clip))
-    index = 0
-    while True:
-        ok, frame = cap.read()
+    tiles = []
+    for index in range(max(by_index) + 1):
+        ok, picture = cap.read()
         if not ok:
             break
-        if index in wanted:
-            yield index, cv.resize(frame, size, interpolation=cv.INTER_AREA)
-        index += 1
-    cap.release()
-
-
-def run_pose(clip, shots, detections):
-    """Save both pose models' keypoints for the frames before each shot of one clip."""
-    wanted = {
-        index: number
-        for number, (rim_time_s, _) in enumerate(shots)
-        for index, frame in enumerate(detections)
-        if rim_time_s - WINDOW_S <= frame["t"] <= rim_time_s
-    }
-    folder = OUTPUT_DIR / Path(clip).stem
-    # A fresh MediaPipe model per clip: it follows the person from frame to frame.
-    models = {"yolo": yolo_pose(), "mediapipe": mediapipe_pose()}
-    files = {source: (folder / f"pose_{source}.jsonl").open("w") for source in SOURCES}
-    for index, frame in clip_frames(clip, wanted):
-        for source in SOURCES:
-            points, world = models[source](frame, int(detections[index]["t"] * 1000))
-            record = {"shot": wanted[index], "frame": index, "points": points, "world": world}
-            files[source].write(json.dumps(record) + "\n")
-    for file in files.values():
-        file.close()
-
-
-def shot_frames(clip, source, detections):
-    """{shot number: frames ready for measure()} from the keypoints saved for one pose model."""
-    by_shot = {}
-    with (OUTPUT_DIR / Path(clip).stem / f"pose_{source}.jsonl").open() as f:
-        for line in f:
-            record = json.loads(line)
-            frame = dict(detections[record["frame"]], index=record["frame"], points=record["points"])
-            if record["world"]:
-                frame["world"] = record["world"]
-            by_shot.setdefault(record["shot"], []).append(frame)
-    return by_shot
-
-
-def write_sheet(clip, picks):
-    """One picture per clip: each shot's deepest-bend frame and release frame with the skeleton.
-
-    picks is a list of (frame, label) in the order they should appear.
-    """
-    pictures = dict(clip_frames(clip, {frame["index"] for frame, _ in picks}))
-    tiles = []
-    for frame, label in picks:
-        picture = pictures[frame["index"]]
+        if index not in by_index:
+            continue
+        frame, label = by_index[index]
+        picture = cv.resize(picture, size, interpolation=cv.INTER_AREA)
         points = {name: point for name, point in frame["points"].items() if point[2] >= SEEN}
         for side, colour in (("left", (255, 160, 0)), ("right", (0, 220, 255))):
             for start, end in BONES:
@@ -186,97 +85,58 @@ def write_sheet(clip, picks):
             cv.putText(picture, text, (12, 40 + 38 * row), cv.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 5)
             cv.putText(picture, text, (12, 40 + 38 * row), cv.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
         tiles.append(cv.resize(picture, (360, 640)))
+    cap.release()
     blank = tiles[0] * 0
     per_row = 8  # four shots a row, two pictures each
     rows = [tiles[i:i + per_row] for i in range(0, len(tiles), per_row)]
     sheet = cv.vconcat([cv.hconcat(row + [blank] * (per_row - len(row))) for row in rows])
-    cv.imwrite(str(OUTPUT_DIR / Path(clip).stem / "form_sheet.jpg"), sheet)
+    cv.imwrite(str(folder / "form_sheet.jpg"), sheet)
 
 
 def report(rows):
-    """rows: one per shot and pose model, with the numbers from all, even and odd frames."""
-    shots = len(rows) // len(SOURCES)
-    passing = []
-    print(f"\n{shots} shots. Spread = how much a number changes shot to shot inside one clip.")
-    print("Wiggle = how much it changes when only the even or only the odd frames are used.\n")
-    print("| Number | Pose model | Shots measured | Average | Spread | Wiggle | Kept |")
+    """rows: one per shot, with its clip, true result, and numbers from all, even and odd frames."""
+    print(f"\n{len(rows)} shots.\n")
+    print("| Number | Shots measured | Average | Spread | Wiggle | Makes | Misses |")
     print("|---|---|---|---|---|---|---|")
     for number in NUMBERS:
-        for source in SOURCES:
-            mine = [row for row in rows if row["source"] == source]
-            values = [row["all"][number] for row in mine if row["all"][number] is not None]
-            if not values:
-                continue
-            by_clip = {}
-            for row in mine:
-                if row["all"][number] is not None:
-                    by_clip.setdefault(row["clip"], []).append(row["all"][number])
-            spread = mean(stdev(v) for v in by_clip.values() if len(v) > 1)
-            wiggles = [
-                abs(row["even"][number] - row["odd"][number])
-                for row in mine
-                if None not in (row["even"][number], row["odd"][number])
-            ]
-            wiggle = median(wiggles) if wiggles else float("inf")
-            kept = len(values) >= MIN_COVERAGE * shots and wiggle < MAX_WIGGLE_OF_SPREAD * spread
-            if kept:
-                passing.append((number, source))
-            print(f"| {number} | {source} | {len(values)} of {shots} | {mean(values):.2f} "
-                  f"| {spread:.2f} | {wiggle:.2f} | {'yes' if kept else 'no'} |")
-
-    def column(number, source):
-        return {(row["clip"], row["shot"]): row["all"][number] for row in rows if row["source"] == source}
-
-    print("\nAgreement: do two ways of measuring the same thing rise and fall together? (1.0 = perfectly)\n")
-    for part in ("knee", "elbow", "arm", "release_height", "jump", "release_time_s", "flight_time_s"):
-        columns = [(n, s) for n in NUMBERS if n.startswith(part) for s in SOURCES]
-        for first, second in combinations(columns, 2):
-            a, b = column(*first), column(*second)
-            both = [key for key in a if a[key] is not None and b[key] is not None]
-            if len(both) >= 10:
-                r = correlation([a[key] for key in both], [b[key] for key in both])
-                print(f"- {first[0]} ({first[1]}) vs {second[0]} ({second[1]}): {r:+.2f} on {len(both)} shots")
-
-    print("\nMakes vs misses, for the numbers that were kept. Small sample: a hint, not a finding.\n")
-    print("| Number | Pose model | Makes | Misses |")
-    print("|---|---|---|---|")
-    for number, source in passing:
-        averages = []
-        for result in ("MAKE", "MISS"):
-            values = [
-                row["all"][number] for row in rows
-                if row["source"] == source and row["result"] == result and row["all"][number] is not None
-            ]
-            averages.append(f"{mean(values):.2f} ({len(values)} shots)")
-        print(f"| {number} | {source} | {averages[0]} | {averages[1]} |")
+        measured = [row for row in rows if row["all"][number] is not None]
+        by_clip = {}
+        for row in measured:
+            by_clip.setdefault(row["clip"], []).append(row["all"][number])
+        spread = mean(stdev(values) for values in by_clip.values() if len(values) > 1)
+        wiggle = median(
+            abs(row["even"][number] - row["odd"][number])
+            for row in rows
+            if None not in (row["even"][number], row["odd"][number])
+        )
+        makes, misses = (
+            mean(row["all"][number] for row in measured if row["result"] == result)
+            for result in ("MAKE", "MISS")
+        )
+        average = mean(row["all"][number] for row in measured)
+        print(f"| {number} | {len(measured)} of {len(rows)} | {average:.2f} | {spread:.2f} "
+              f"| {wiggle:.2f} | {makes:.2f} | {misses:.2f} |")
 
 
 def main():
-    replaying = "--replay" in sys.argv
     rows = []
     for clip, shots in labeled_shots().items():
-        detections = saved_detections(clip)
-        if not replaying:
-            print(f"Running the pose models on {clip}...")
-            run_pose(clip, shots, detections)
+        frames = pose_frames(clip)
         picks = []
-        for source in SOURCES:
-            by_shot = shot_frames(clip, source, detections)
-            for number, (rim_time_s, result) in enumerate(shots):
-                frames = by_shot[number]
-                numbers = measure(frames, rim_time_s)
-                rows.append({
-                    "clip": clip, "shot": number, "source": source, "result": result,
-                    "all": numbers,
-                    "even": measure(frames[0::2], rim_time_s),
-                    "odd": measure(frames[1::2], rim_time_s),
-                })
-                if source == "yolo" and numbers["bend_s"] is not None:
-                    at = {frame["t"]: frame for frame in frames}
-                    knee = f"knee {numbers['knee_vertical']:.0f}"
-                    picks.append((at[numbers["bend_s"]], [f"{rim_time_s:.1f}s {result}", "deepest bend", knee]))
-                    picks.append((at[numbers["release_s"]], ["release", f"{numbers['arm']} arm"]))
-        if not replaying and picks:
+        for rim_time_s, result in shots:
+            mine = [frame for frame in frames if rim_time_s - FORM_WINDOW_S <= frame["t"] <= rim_time_s]
+            numbers = measure(mine, rim_time_s)
+            rows.append({
+                "clip": clip, "result": result, "all": numbers,
+                "even": measure(mine[0::2], rim_time_s),
+                "odd": measure(mine[1::2], rim_time_s),
+            })
+            if numbers["bend_s"] is not None:
+                at = {frame["t"]: frame for frame in mine}
+                knee = f"knee {numbers['knee_bend_deg']:.0f}"
+                picks.append((at[numbers["bend_s"]], [f"{rim_time_s:.1f}s {result}", "deepest bend", knee]))
+                picks.append((at[numbers["release_s"]], ["release", f"{numbers['arm']} arm"]))
+        if picks:
             write_sheet(clip, picks)
     report(rows)
 

@@ -9,7 +9,8 @@ RUN npm run build
 FROM python:3.12-slim
 
 # ffmpeg converts the annotated video to H.264 so browsers can play it.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# libegl1 and libgles2 are graphics libraries MediaPipe loads at start, even when it runs on the CPU.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libegl1 libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -17,12 +18,12 @@ WORKDIR /app
 # CPU-only PyTorch. The default build bundles GPU libraries (gigabytes) a server without a GPU never uses.
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Ultralytics pulls in opencv-python, which needs desktop graphics libraries.
-# The headless build is the same OpenCV without the window code.
+# Ultralytics pulls in opencv-python and MediaPipe pulls in opencv-contrib-python. Both need
+# desktop graphics libraries. The headless build is the same OpenCV without the window code.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip uninstall -y opencv-python \
-    && pip install --no-cache-dir opencv-python-headless
+    && pip uninstall -y opencv-python opencv-contrib-python \
+    && pip install --no-cache-dir opencv-contrib-python-headless
 
 # OpenVINO runs the same trained models about 2x faster on a CPU, with identical detections.
 RUN pip install --no-cache-dir openvino

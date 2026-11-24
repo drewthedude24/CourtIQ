@@ -2,6 +2,8 @@ fastapi>=0.141,<1
 uvicorn[standard]>=0.52,<1
 python-multipart>=0.0.20,<1
 ultralytics>=8.3,<9
+# The pose model that reads the shooter's joints (vision/pose_model.py).
+mediapipe>=1.2,<2
 # Used by the pose model's person tracker. Without it Ultralytics installs it at runtime.
 psycopg[binary]>=3.2,<4
 pytest>=8,<9
