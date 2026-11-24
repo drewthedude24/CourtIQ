@@ -7,10 +7,8 @@ import cv2 as cv
 import torch
 
 from yolo_detector import YoloDetector
-from pose_detector import PoseDetector
 from predictive_ball_tracker import PredictiveBallTracker
-from shot_detector import ShotDetector
-from shot_result_detector import ShotResultDetector
+from rim_shot_detector import RimShotDetector
 import debug_overlay
 
 
@@ -26,7 +24,6 @@ yolo_detector = YoloDetector(
     image_size=OFFLINE_YOLO_IMAGE_SIZE,
     focus_image_size=OFFLINE_FOCUS_IMAGE_SIZE,
 )
-pose_detector = PoseDetector()
 
 # because my history of the ball tracking is deque structure, needs to be converted to list first
 def serialize(tracked_ball):
@@ -211,14 +208,25 @@ def process_vid(input_path, output_folder):
 
     # Each clip needs fresh state so a previous clip cannot affect the next one.
     ball_tracker = PredictiveBallTracker()
-    shot_detector = ShotDetector()
-    shot_result_detector = ShotResultDetector()
+    shot_detector = RimShotDetector()
     frame_index = 0
     shot_events = []
-    previous_shot_state = "IDLE"
     previous_tracking_status = "LOST"
     make_count = 0
     miss_count = 0
+
+    def shot_event(shot_result):
+        return {
+            "shot_id": shot_result["shot_id"],
+            "frame_index": frame_index,
+            # When the ball reached the rim, not when the result was decided.
+            "timestamp_s": shot_result["shot_time_s"],
+            "result": shot_result["result"],
+            "reason": shot_result["reason"],
+            "rim_center": shot_result["rim_center"],
+            "makes": make_count,
+            "misses": miss_count,
+        }
 
     (output_path / "configuration.json").write_text(
         json.dumps(
@@ -240,7 +248,7 @@ def process_vid(input_path, output_folder):
 
     # Seconds spent in each part of the loop, summed over all frames (saved to timings.json).
     timings = dict.fromkeys(
-        ["read_resize", "ball_detector", "pose", "tracking_and_shots",
+        ["read_resize", "ball_detector", "tracking_and_shots",
          "drawing", "video_write", "json_write"],
         0.0,
     )
@@ -281,12 +289,9 @@ def process_vid(input_path, output_folder):
                 if ball_focus_region is not None:
                     focus_regions.append(ball_focus_region)
 
-                if previous_shot_state in {"POSSIBLE_SHOT", "RELEASED"}:
-                    rim_focus_region = shot_result_detector.get_focus_region(
-                        inference_frame.shape
-                    )
-                    if rim_focus_region is not None:
-                        focus_regions.append(rim_focus_region)
+                rim_focus_region = shot_detector.get_focus_region(inference_frame.shape)
+                if rim_focus_region is not None:
+                    focus_regions.append(rim_focus_region)
 
                 run_full_frame = (
                     previous_tracking_status == "LOST"
@@ -301,16 +306,8 @@ def process_vid(input_path, output_folder):
                     run_full_frame=run_full_frame,
                 )
                 t = lap(timings, "ball_detector", t)
-                people = pose_detector.detect(inference_frame)
-                t = lap(timings, "pose", t)
                 tracked_ball = ball_tracker.update(detections)
-                shot_state = shot_detector.update(tracked_ball, people)
-                shot_result = shot_result_detector.update(
-                    detections,
-                    tracked_ball,
-                    shot_state,
-                    frame_index,
-                )
+                shot_result = shot_detector.update(detections, timestamp_s)
 
                 if shot_result["event"]:
                     if shot_result["result"] == "MAKE":
@@ -332,7 +329,7 @@ def process_vid(input_path, output_folder):
                 debug_overlay.draw_debug_overlay(
                     output_frame,
                     scale_tracked_ball(tracked_ball, scale_x, scale_y),
-                    shot_state,
+                    shot_result["status"],
                     timestamp_s,
                     scale_shot_result(shot_result, scale_x, scale_y),
                 )
@@ -360,7 +357,6 @@ def process_vid(input_path, output_folder):
                         ],
                         "detections": detections,
                         "ball": serialize(tracked_ball),
-                        "shot_state": shot_state,
                         "shot_result": shot_result,
                         "score": {
                             "makes": make_count,
@@ -370,28 +366,20 @@ def process_vid(input_path, output_folder):
                 )
 
                 if shot_result["event"]:
-                    event_record = {
-                        "shot_id": shot_result["shot_id"],
-                        "frame_index": frame_index,
-                        "timestamp_s": timestamp_s,
-                        "result": shot_result["result"],
-                        "release_frame": shot_result["release_frame"],
-                        "reason": shot_result["reason"],
-                        "rim_center": shot_result["rim_center"],
-                        "provisional_crossing_x": shot_result[
-                            "provisional_crossing_x"
-                        ],
-                        "makes": make_count,
-                        "misses": miss_count,
-                    }
-                    write_json_line(event_file, event_record)
-                    shot_events.append(event_record)
-                    shot_detector.complete_shot()
+                    shot_events.append(shot_event(shot_result))
+                    write_json_line(event_file, shot_events[-1])
                 lap(timings, "json_write", t)
 
-                previous_shot_state = shot_state
                 previous_tracking_status = tracked_ball["tracking_status"]
                 frame_index += 1
+
+            # The video can end while a shot is still being watched.
+            last_result = shot_detector.finish()
+            if last_result:
+                make_count += last_result["result"] == "MAKE"
+                miss_count += last_result["result"] == "MISS"
+                shot_events.append(shot_event(last_result))
+                write_json_line(event_file, shot_events[-1])
     finally:
         writer.release()
         cap.release()
