@@ -33,8 +33,10 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 ALLOWED_EXTENSIONS = {".mov", ".mp4", ".m4v"}
 MAX_UPLOAD_BYTES = 1_000_000_000
 WEB_INFERENCE_SIZE = (1280, 720)
-WEB_FULL_IMAGE_SIZE = 960
-WEB_FOCUS_IMAGE_SIZE = 640
+WEB_FULL_IMAGE_SIZE = 640
+# Focus crops are about 300x430 pixels, so 448 runs them near their real size
+# instead of blowing them up to 640, which cost more than the full frame.
+WEB_FOCUS_IMAGE_SIZE = 448
 WEB_FULL_FRAME_INTERVAL = 1
 WEB_CONFIDENCE_THRESHOLD = 0.12
 # OpenCV on Linux can't write H.264, so write mp4v and let ffmpeg convert it.
