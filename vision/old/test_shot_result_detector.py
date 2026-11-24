@@ -1,7 +1,7 @@
 import unittest
 
-from vision.shot_detector import ShotDetector
-from vision.shot_result_detector import ShotResultDetector
+from vision.old.shot_detector import ShotDetector
+from vision.old.shot_result_detector import ShotResultDetector
 
 
 def hoop_detection(bbox=(800, 240, 920, 290)):
