@@ -1,4 +1,5 @@
 import { useRef, type ReactNode } from "react";
+import FormTable from "./FormTable";
 import { formatDate, formatTime } from "./format";
 import type { Session } from "./types";
 
@@ -23,6 +24,8 @@ export default function Viewer({ session, uploading, failed }: Props) {
     if (!video) return;
     video.currentTime = Math.max(0, seconds - LEAD_IN_S);
     video.play();
+    // The shot form table is below the video, so bring the video back into view.
+    video.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   if (session?.status === "FAILED") {
@@ -47,32 +50,35 @@ export default function Viewer({ session, uploading, failed }: Props) {
 
   const attempts = session.makes + session.misses;
   return (
-    <section className="viewer">
-      <video key={session.id} ref={videoRef} src={session.video_url} controls autoPlay playsInline />
+    <>
+      <section className="viewer">
+        <video key={session.id} ref={videoRef} src={session.video_url} controls autoPlay playsInline />
 
-      <aside className="shots">
-        <h2>{session.original_filename}</h2>
-        <p className="detail">
-          {formatDate(session.created_at)} · {session.makes} of {attempts} made
-          {attempts > 0 && ` · ${Math.round((100 * session.makes) / attempts)}%`}
-        </p>
+        <aside className="shots">
+          <h2>{session.original_filename}</h2>
+          <p className="detail">
+            {formatDate(session.created_at)} · {session.makes} of {attempts} made
+            {attempts > 0 && ` · ${Math.round((100 * session.makes) / attempts)}%`}
+          </p>
 
-        {session.shots.length === 0 ? (
-          <p className="detail">No shots found in this clip.</p>
-        ) : (
-          <ol>
-            {session.shots.map((shot) => (
-              <li key={shot.shot_number}>
-                <button type="button" onClick={() => jumpTo(shot.timestamp_s)}>
-                  <span className="detail">{shot.shot_number}</span>
-                  <span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result}</span>
-                  <span className="time">{formatTime(shot.timestamp_s)}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        )}
-      </aside>
-    </section>
+          {session.shots.length === 0 ? (
+            <p className="detail">No shots found in this clip.</p>
+          ) : (
+            <ol>
+              {session.shots.map((shot) => (
+                <li key={shot.shot_number}>
+                  <button type="button" onClick={() => jumpTo(shot.timestamp_s)}>
+                    <span className="detail">{shot.shot_number}</span>
+                    <span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result}</span>
+                    <span className="time">{formatTime(shot.timestamp_s)}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+        </aside>
+      </section>
+      <FormTable session={session} onJump={jumpTo} />
+    </>
   );
 }

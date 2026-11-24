@@ -16,6 +16,28 @@ DATABASE_URL = os.environ.get(
 FORM_NUMBERS = ("knee_bend_deg", "elbow_bend_deg", "arm_angle_deg", "jump", "flight_time_s")
 
 
+# For a group of shots: how many there are, then for each form number its average, its spread
+# (how much it changes from shot to shot) and how many shots it was measured on.
+FORM_AGGREGATES = """
+    count(*)                    AS shots,
+    avg(knee_bend_deg)          AS knee_bend_deg,
+    stddev_samp(knee_bend_deg)  AS knee_bend_deg_spread,
+    count(knee_bend_deg)        AS knee_bend_deg_shots,
+    avg(elbow_bend_deg)         AS elbow_bend_deg,
+    stddev_samp(elbow_bend_deg) AS elbow_bend_deg_spread,
+    count(elbow_bend_deg)       AS elbow_bend_deg_shots,
+    avg(arm_angle_deg)          AS arm_angle_deg,
+    stddev_samp(arm_angle_deg)  AS arm_angle_deg_spread,
+    count(arm_angle_deg)        AS arm_angle_deg_shots,
+    avg(jump)                   AS jump,
+    stddev_samp(jump)           AS jump_spread,
+    count(jump)                 AS jump_shots,
+    avg(flight_time_s)          AS flight_time_s,
+    stddev_samp(flight_time_s)  AS flight_time_s_spread,
+    count(flight_time_s)        AS flight_time_s_shots
+"""
+
+
 def connect():
     # Leaving a `with connect()` block commits, or rolls back on an error.
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -134,18 +156,8 @@ def get_session(session_id):
         # The average and the spread (how much it changes from shot to shot) of each form
         # number: one row for makes, one for misses, and ROLLUP adds one for all shots.
         rows = connection.execute(
-            """
-            SELECT result,
-                   avg(knee_bend_deg)          AS knee_bend_deg,
-                   stddev_samp(knee_bend_deg)  AS knee_bend_deg_spread,
-                   avg(elbow_bend_deg)         AS elbow_bend_deg,
-                   stddev_samp(elbow_bend_deg) AS elbow_bend_deg_spread,
-                   avg(arm_angle_deg)          AS arm_angle_deg,
-                   stddev_samp(arm_angle_deg)  AS arm_angle_deg_spread,
-                   avg(jump)                   AS jump,
-                   stddev_samp(jump)           AS jump_spread,
-                   avg(flight_time_s)          AS flight_time_s,
-                   stddev_samp(flight_time_s)  AS flight_time_s_spread
+            f"""
+            SELECT result, {FORM_AGGREGATES}
             FROM shots
             WHERE session_id = %s
             GROUP BY ROLLUP (result)
@@ -190,15 +202,15 @@ def list_sessions(month=None):
 
 def get_form_trend():
     # Each session's average form numbers, oldest first, to see them change over time.
+    # The spread says how much a number changed from shot to shot inside the session, so a
+    # gap between two sessions can be compared with it.
     with connect() as connection:
         return connection.execute(
-            """
-            SELECT sessions.id, sessions.created_at,
-                   avg(shots.knee_bend_deg)  AS knee_bend_deg,
-                   avg(shots.elbow_bend_deg) AS elbow_bend_deg,
-                   avg(shots.arm_angle_deg)  AS arm_angle_deg,
-                   avg(shots.jump)           AS jump,
-                   avg(shots.flight_time_s)  AS flight_time_s
+            f"""
+            SELECT sessions.id, sessions.original_filename, sessions.created_at,
+                   round(100.0 * count(*) FILTER (WHERE shots.result = 'MAKE') / count(*), 1)::float
+                       AS shooting_pct,
+                   {FORM_AGGREGATES}
             FROM sessions
             JOIN shots ON shots.session_id = sessions.id
             GROUP BY sessions.id
