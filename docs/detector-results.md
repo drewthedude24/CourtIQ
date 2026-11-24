@@ -7,6 +7,8 @@ One row is added each time the detector changes.
 |---|---|---|---|---|---|---|
 | Baseline (release-based) | 21 of 63 (33%) | 18 of 21 (86%) | 1 | 18 of 63 (29%) | 623 s | |
 | Rim-based shots | 63 of 63 (100%) | 57 of 63 (90%) | 0 | 57 of 63 (90%) | 530 s | Shots are found at the rim instead of at the release. Pose model no longer runs. |
+| Bounce and width rules | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | not timed | A ball that bounces up off the rim is a miss. A sliver of a ball under the rim does not count. Scored by replay, not a full run. |
+| Smaller YOLO images | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 440 s | Full frame 960 to 640, zoomed-in crops 640 to 448. Full Docker run with both changes. |
 
 - **Found:** real shots the detector reported, within 2 seconds of the labeled time.
 - **Make/miss right:** found shots where the make or miss call matches the label.
@@ -78,6 +80,31 @@ Still wrong (6 shots, all misses called makes):
   under the rim on its way out sideways. Makes are seen there 3 to 18 times, so
   needing 3 sightings would fix these 3, but two makes are seen exactly 3 times, which
   leaves no margin.
+
+## Bounce and width rules, smaller YOLO images
+
+Two changes, measured together in one full Docker run (63 found, 61 fully correct, 0 false
+detections, 440 s):
+
+- **Bounce rule:** after the ball reaches the rim, if its centre goes more than 0.3
+  hoop-heights back above the rim line, the shot is a miss. This fixed the three r1 shots
+  that fell behind the rim. The cost is that a shot which bounces on the rim and then drops
+  in would also be called a miss. None of the 63 shots does that, so this score does not
+  show it.
+- **Width rule:** a ball box narrower than 0.3 hoop-widths does not count as the ball under
+  the rim. This fixed s4 at 28.2 s. It rests on that one shot.
+- **Smaller images:** the full frame runs at 640 instead of 960 and the zoomed-in crops at
+  448 instead of 640. The crops are about 300 by 430 pixels, so scaling them up to 640
+  cost more than the full frame.
+
+Run time went from 623 s (baseline) to 530 s (rim-based shots) to 440 s. Run times vary
+between runs, so treat these as rough.
+
+Still wrong: r1 at 8.6 and 71.3 s, both misses called makes. The ball is seen twice at the
+edge of the area under the rim on its way out, which looks the same as some real makes.
+
+On the Mac, the smaller images lost one shot (s4 at 8.8 s) that is only found when the
+ball's bottom edge lands exactly on the rim line. The Docker run found it.
 
 ## Baseline by clip
 
