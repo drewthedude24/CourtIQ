@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .database import (
+    FORM_NUMBERS,
     create_session,
     delete_session,
     get_form_trend,
@@ -96,6 +97,11 @@ def convert_to_h264(video_path):
     converted_path.replace(video_path)
 
 
+def form_picture(session_id, shot_number, name):
+    """Where a shot's picture for one form number is saved (vision/form_pictures.py)."""
+    return RESULT_ROOT / session_id / "form" / f"{shot_number}_{name}.jpg"
+
+
 def public_session(session):
     video_url = None
     if session["status"] == "COMPLETED" and session["output_path"]:
@@ -111,7 +117,15 @@ def public_session(session):
         "completed_at": session["completed_at"],
         "error_message": session["error_message"],
         "video_url": video_url,
-        "shots": session["shots"],
+        # A number that wasn't measured has no picture, so it isn't listed.
+        "shots": [
+            {**shot, "pictures": {
+                name: f"/api/sessions/{session['id']}/shots/{shot['shot_number']}/form/{name}.jpg"
+                for name in FORM_NUMBERS
+                if form_picture(session["id"], shot["shot_number"], name).exists()
+            }}
+            for shot in session["shots"]
+        ],
         "form": session["form"],
     }
 
@@ -241,6 +255,18 @@ def session_video(session_id: str, download: bool = False):
 
     filename = f"courtiq-{session_id}.mp4" if download else None
     return FileResponse(output_path, media_type="video/mp4", filename=filename)
+
+
+@app.get("/api/sessions/{session_id}/shots/{shot_number}/form/{name}.jpg")
+def form_picture_file(session_id: str, shot_number: int, name: str):
+    # Checking both first means only a real session id and a real form number (never
+    # something like "../..") are used to build the file path.
+    if name not in FORM_NUMBERS or get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Picture not found")
+    path = form_picture(session_id, shot_number, name)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Picture not found")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 # The built React page (`npm run build`). Mounted last so the /api routes above match first.

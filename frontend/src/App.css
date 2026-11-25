@@ -296,6 +296,25 @@ tr.selected .clip button {
   font-weight: 600;
 }
 
+/* Form pictures of the clicked shot: small, one row, wrapping on a phone. */
+.form-pictures > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.form-pictures img {
+  display: block;
+  height: 180px;
+  border-radius: 6px;
+  background: #000000;
+}
+
+.form-pictures figcaption {
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Form by session: a row of small line charts, one per form number, across the full width. */
 .form-trend {
   grid-column: 1 / -1;
@@ -386,6 +405,15 @@ figure svg {
 
   .wide-only {
     display: none;
+  }
+
+  /* Shorter, so the five form pictures fit in one row. */
+  .form-pictures > div {
+    gap: 8px;
+  }
+
+  .form-pictures img {
+    height: 130px;
   }
 
   th,

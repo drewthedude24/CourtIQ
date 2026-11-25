@@ -11,6 +11,7 @@ from predictive_ball_tracker import PredictiveBallTracker
 from rim_shot_detector import RimShotDetector
 from pose_model import PoseModel
 from shot_form import FORM_WINDOW_S, ball_and_hoop, measure
+from form_pictures import save_pictures
 import debug_overlay
 
 
@@ -182,6 +183,7 @@ def add_form(input_path, inference_size, shot_events, frame_notes, output_path):
     A shot is only known once the ball reaches the rim, about a second after the release. So this
     is a second pass: it runs the pose model on just the frames before each shot.
     frame_notes holds each frame's time, balls and hoop from the first pass.
+    Returns the frames pose was run on, with their joints, for drawing the form pictures.
     """
     def before(event, note):
         return event["timestamp_s"] - FORM_WINDOW_S <= note["t"] <= event["timestamp_s"]
@@ -191,7 +193,7 @@ def add_form(input_path, inference_size, shot_events, frame_notes, output_path):
         if any(before(event, note) for event in shot_events)
     }
     if not wanted:
-        return
+        return []
     pose_model = PoseModel()
     cap = cv.VideoCapture(input_path)
     pose_frames = []
@@ -206,12 +208,13 @@ def add_form(input_path, inference_size, shot_events, frame_notes, output_path):
             frame = cv.resize(frame, inference_size, interpolation=cv.INTER_AREA)
             points, world = pose_model.keypoints(frame, frame_notes[index]["t"])
             write_json_line(pose_file, {"frame_index": index, "points": points, "world": world})
-            pose_frames.append(dict(frame_notes[index], points=points, world=world))
+            pose_frames.append(dict(frame_notes[index], index=index, points=points, world=world))
     cap.release()
     pose_model.close()
     for event in shot_events:
         frames = [frame for frame in pose_frames if before(event, frame)]
         event["form"] = measure(frames, event["timestamp_s"])
+    return pose_frames
 
 
 # main loop for each clip
@@ -290,7 +293,7 @@ def process_vid(input_path, output_folder):
     # Seconds spent in each part of the loop, summed over all frames (saved to timings.json).
     timings = dict.fromkeys(
         ["read_resize", "ball_detector", "tracking_and_shots",
-         "drawing", "video_write", "json_write", "form"],
+         "drawing", "video_write", "json_write", "form", "form_pictures"],
         0.0,
     )
     job_start = time.perf_counter()
@@ -422,8 +425,11 @@ def process_vid(input_path, output_folder):
         cap.release()
 
     t = time.perf_counter()
-    add_form(input_path, inference_size, shot_events, frame_notes, output_path)
+    pose_frames = add_form(input_path, inference_size, shot_events, frame_notes, output_path)
     lap(timings, "form", t)
+    t = time.perf_counter()
+    save_pictures(input_path, inference_size, shot_events, pose_frames, output_path / "form")
+    lap(timings, "form_pictures", t)
     with (output_path / "shot_events.jsonl").open("w", encoding="utf-8") as event_file:
         for event in shot_events:
             write_json_line(event_file, event)

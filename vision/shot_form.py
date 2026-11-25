@@ -215,9 +215,11 @@ def find_release(frames, later, ball):
 
 def measure(frames, shot_time_s):
     """The form numbers for one shot. A number that could not be measured is None.
-    Also gives the release time, the deepest-bend time and the shooting arm.
+    Also gives the release time, the deepest-bend time and the shooting arm, and in "seen_at"
+    the time of the frame each measured number was read on, for drawing it.
     shot_time_s is the shot detector's time for the ball reaching the rim."""
     numbers = dict.fromkeys(NUMBERS + ("release_s", "bend_s", "arm"))
+    seen_at = numbers["seen_at"] = {}
     arrival = find_arrival(frames, shot_time_s)
     release_s, arm = find_release(frames, *arrival) if arrival else (None, None)
     if release_s is None:
@@ -227,6 +229,7 @@ def measure(frames, shot_time_s):
     last_seen_s = arrival[0]["t"]
     rim_time_s = shot_time_s if shot_time_s - last_seen_s <= RELEASE_GAP_S else last_seen_s
     numbers.update(release_s=release_s, arm=arm, flight_time_s=rim_time_s - release_s)
+    seen_at["flight_time_s"] = release_s
     near_release = (release_s - STRAIGHT_WINDOW_S, release_s + STRAIGHT_WINDOW_S)
     reach_to = release_s + REACH_WINDOW_S
 
@@ -236,7 +239,9 @@ def measure(frames, shot_time_s):
     # With gaps, the tightest moment may be in a frame that is missing, and the number comes out
     # too wide. From behind the arm is hidden like this on about a third of shots.
     if len(elbows) >= ELBOW_SEEN * len(wind_up):
-        _, numbers["elbow_bend_deg"] = extreme(elbows, release_s - ELBOW_WINDOW_S, release_s, min)
+        elbow_s, numbers["elbow_bend_deg"] = extreme(elbows, release_s - ELBOW_WINDOW_S, release_s, min)
+        if elbow_s is not None:
+            seen_at["elbow_bend_deg"] = elbow_s
 
     # Knee: the deepest bend before the release, from how much the legs shorten.
     legs = series(frames, leg_length)
@@ -247,13 +252,14 @@ def measure(frames, shot_time_s):
     # Thigh and shank are about the same length, so the hip, knee and ankle make a triangle
     # with two equal sides: hip-to-ankle = 2 x thigh x sin(half the knee angle).
     numbers["knee_bend_deg"] = 2 * math.degrees(math.asin(min(1.0, shortest / straight)))
-    numbers["bend_s"] = bend_s
+    numbers["bend_s"] = seen_at["knee_bend_deg"] = bend_s
 
     # Arm: the steepest it points as the ball leaves. Same idea as the knee: the wrist's height
     # over the shoulder against the arm's real length, with the straight leg as the ruler for
     # how long this shooter's arm is.
-    _, highest_rise = extreme(series(frames, lambda f: arm_rise(f, arm)), release_s, reach_to, max)
+    reach_s, highest_rise = extreme(series(frames, lambda f: arm_rise(f, arm)), release_s, reach_to, max)
     if highest_rise is not None:
+        seen_at["arm_angle_deg"] = reach_s
         lift = highest_rise / (ARM_PER_LEG * straight)
         numbers["arm_angle_deg"] = math.degrees(math.asin(max(-1.0, min(1.0, lift))))
 
@@ -262,7 +268,8 @@ def measure(frames, shot_time_s):
     _, body = extreme(series(frames, body_length), *near_release, max)
     feet = series(frames, feet_below_rim)
     _, on_ground = extreme(feet, bend_s - GROUND_WINDOW_S, bend_s + GROUND_WINDOW_S, max)
-    _, at_peak = extreme(feet, release_s - STRAIGHT_WINDOW_S, reach_to, min)
+    peak_s, at_peak = extreme(feet, release_s - STRAIGHT_WINDOW_S, reach_to, min)
     if body and None not in (on_ground, at_peak):
         numbers["jump"] = (on_ground - at_peak) / body
+        seen_at["jump"] = peak_s
     return numbers
