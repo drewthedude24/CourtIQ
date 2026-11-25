@@ -52,9 +52,13 @@ export default function FormTable({ session, onJump, picked }: Props) {
   return (
     <section>
       <h2>Shot form</h2>
+      <dl className="legend">
+        <div><dt>Knee bend, elbow bend</dt><dd>The deepest bend before the release. 180° is straight.</dd></div>
+        <div><dt>Arm angle</dt><dd>How steeply the arm points up at the release.</dd></div>
+        <div><dt>Jump</dt><dd>Measured in shoulder-heights.</dd></div>
+        <div><dt>Flight time</dt><dd>From the hand to the rim.</dd></div>
+      </dl>
       <p className="detail caption">
-        Knee and elbow: the deepest bend before the release (180° is straight). Arm: how steeply it
-        points up at the release. Jump: in shoulder-heights. Flight: from the hand to the rim.
         Click a shot to watch it and see where its numbers were read. A number far from this session's average is{" "}
         <span className="odd">marked</span>.
       </p>
@@ -79,7 +83,7 @@ export default function FormTable({ session, onJump, picked }: Props) {
               <td className="clip">
                 <button type="button" aria-label={`Play shot ${shot.shot_number}`}>{shot.shot_number}</button>
               </td>
-              <td className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result}</td>
+              <td><span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result === "MAKE" ? "Make" : "Miss"}</span></td>
               {FORM_COLUMNS.map((column) => (
                 <td key={column.key} className={isOdd(shot[column.key], column.key) ? "num odd" : "num"}>
                   {formatNumber(shot[column.key], column.digits, column.unit)}

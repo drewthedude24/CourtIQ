@@ -43,12 +43,25 @@ export default function Viewer({ session, uploading, failed }: Props) {
   }
   if (failed) return <Message><p>Couldn't reach the server. Try again.</p></Message>;
   if (uploading) return <Message><p>Uploading…</p></Message>;
-  if (!session) return <Message><p>Upload a clip, or pick a session below.</p></Message>;
+  if (!session) {
+    return (
+      <Message>
+        <h2>How it works</h2>
+        <ol className="steps">
+          <li>Upload a clip of you shooting.</li>
+          <li>CourtIQ finds each shot and calls it a make or a miss. This takes a few minutes.</li>
+          <li>Watch it back, jump to any shot, and see your form numbers.</li>
+        </ol>
+        <p className="detail">Or pick a past session below.</p>
+      </Message>
+    );
+  }
   if (session.status !== "COMPLETED" || !session.video_url) {
     return (
       <Message>
         <p>Finding shots in {session.original_filename}.</p>
-        <p className="detail">This takes a few minutes.</p>
+        <p className="detail">This takes a few minutes. You can leave this page open.</p>
+        <div className="progress" role="progressbar" aria-label="Analyzing video" />
       </Message>
     );
   }
@@ -77,7 +90,7 @@ export default function Viewer({ session, uploading, failed }: Props) {
                 <li key={shot.shot_number}>
                   <button type="button" onClick={() => jumpTo(shot)}>
                     <span className="detail">{shot.shot_number}</span>
-                    <span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result}</span>
+                    <span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result === "MAKE" ? "Make" : "Miss"}</span>
                     <span className="time">{formatTime(shot.timestamp_s)}</span>
                   </button>
                 </li>

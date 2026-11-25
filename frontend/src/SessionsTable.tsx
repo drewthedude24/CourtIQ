@@ -12,7 +12,8 @@ type Props = {
 export default function SessionsTable({ sessions, selectedId, disabled, onSelect, onDelete }: Props) {
   return (
     <section>
-      <h2>Sessions</h2>
+      <h2>Your sessions</h2>
+      <p className="detail caption">Click a session to watch it.</p>
       {sessions.length === 0 ? (
         <p className="detail">No sessions yet. Upload a clip to start.</p>
       ) : (
@@ -23,7 +24,7 @@ export default function SessionsTable({ sessions, selectedId, disabled, onSelect
               <th className="wide-only">Date</th>
               <th className="num">Makes</th>
               <th className="num">Misses</th>
-              <th className="num">FG%</th>
+              <th className="num">Shooting %</th>
               <th />
             </tr>
           </thead>

@@ -91,7 +91,7 @@ export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
 
   return (
     <section className="form-trend">
-      <h2>Form by session</h2>
+      <h2>Form over time</h2>
       <p className="detail caption">
         Oldest session on the left. Each dot is a session's average. The thin bar is how much the
         number changed from shot to shot in that session, so a gap smaller than the bars is noise.

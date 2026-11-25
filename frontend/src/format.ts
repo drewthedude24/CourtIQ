@@ -4,11 +4,11 @@ import type { FormNumbers } from "./types";
 
 // The form numbers in the order the tables show them, and how to print each one.
 export const FORM_COLUMNS: { key: keyof FormNumbers; label: string; digits: number; unit: string }[] = [
-  { key: "knee_bend_deg", label: "Knee", digits: 0, unit: "°" },
-  { key: "elbow_bend_deg", label: "Elbow", digits: 0, unit: "°" },
-  { key: "arm_angle_deg", label: "Arm", digits: 0, unit: "°" },
+  { key: "knee_bend_deg", label: "Knee bend", digits: 0, unit: "°" },
+  { key: "elbow_bend_deg", label: "Elbow bend", digits: 0, unit: "°" },
+  { key: "arm_angle_deg", label: "Arm angle", digits: 0, unit: "°" },
   { key: "jump", label: "Jump", digits: 2, unit: "" },
-  { key: "flight_time_s", label: "Flight", digits: 2, unit: " s" },
+  { key: "flight_time_s", label: "Flight time", digits: 2, unit: " s" },
 ];
 
 // 94.8 with 0 digits and "°" -> "95°". A number that was not measured -> "-".
