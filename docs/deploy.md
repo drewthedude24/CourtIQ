@@ -161,6 +161,53 @@ List prices in us-east-2 (checked 2026-11-24):
 
 With both EC2 and RDS stopped, about $8.50 a month remains (disks, IP, image).
 
+## 8. Automatic deploys (GitHub Actions)
+
+`.github/workflows/ci.yml` runs the tests and the frontend build on every push and pull
+request. A push to `main` that passes also does section 6 by itself: build, push to ECR, run
+`deploy/redeploy.sh` on the server, then check `/api/health`.
+
+GitHub holds no AWS keys. With OIDC, GitHub signs a short token saying which repo and branch
+the job is running for, and AWS swaps it for credentials that last one hour. Set up once:
+
+```bash
+aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com
+aws iam create-role --role-name courtiq-github-deploy --assume-role-policy-document file://github-trust.json
+aws iam put-role-policy --role-name courtiq-github-deploy --policy-name deploy --policy-document file://github-deploy.json
+gh secret set AWS_ROLE_ARN --body 'arn:aws:iam::<account>:role/courtiq-github-deploy'
+gh variable set EC2_INSTANCE_ID --body <instance>
+```
+
+`github-trust.json` lets only this repo's `main` branch use the role:
+
+```json
+{"Version": "2012-10-17", "Statement": [
+  {"Effect": "Allow",
+   "Principal": {"Federated": "arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com"},
+   "Action": "sts:AssumeRoleWithWebIdentity",
+   "Condition": {"StringEquals": {
+     "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+     "token.actions.githubusercontent.com:sub": "repo:drewthedude24/CourtIQ:ref:refs/heads/main"}}}]}
+```
+
+`github-deploy.json` allows pushing to the one image repo and running a command on the one
+server. Note that "a command" means any shell command, as root, on that server.
+
+```json
+{"Version": "2012-10-17", "Statement": [
+  {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+  {"Effect": "Allow",
+   "Action": ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart",
+              "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage"],
+   "Resource": "arn:aws:ecr:us-east-2:<account>:repository/courtiq"},
+  {"Effect": "Allow", "Action": "ssm:SendCommand",
+   "Resource": ["arn:aws:ec2:us-east-2:<account>:instance/<instance>",
+                "arn:aws:ssm:us-east-2::document/AWS-RunShellScript"]},
+  {"Effect": "Allow", "Action": "ssm:GetCommandInvocation", "Resource": "*"}]}
+```
+
+The deploy job fails if the server is stopped (section 7). The tests still run.
+
 ## Gotchas found while deploying
 
 - **OpenVINO precision.** The server's CPU (Xeon 8488C) has AMX, and OpenVINO then runs in

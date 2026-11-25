@@ -1,0 +1,83 @@
+# Tests every push and pull request. A push to main that passes is also deployed to AWS.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # A throwaway Postgres that lives only for this job. The name, password and database
+    # match the default in tests/conftest.py.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: courtiq
+          POSTGRES_PASSWORD: courtiq
+          POSTGRES_DB: courtiq_test
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U courtiq" --health-interval 2s --health-retries 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # tests/test_video.py converts a real video with ffmpeg.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # CPU-only PyTorch, as in the Dockerfile. The default build downloads GPU libraries.
+      - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci
+      # Type-checks (tsc), then builds the static files.
+      - run: npm run build
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # Lets this job ask GitHub for the signed token AWS trusts (OIDC).
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      # Swaps the GitHub token for 1-hour AWS credentials. No AWS keys are stored anywhere.
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-2
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build the image and push it to ECR
+        run: |
+          docker build -t ${{ steps.ecr.outputs.registry }}/courtiq:latest .
+          docker push ${{ steps.ecr.outputs.registry }}/courtiq:latest
+      # Session Manager runs deploy/redeploy.sh on the server, then asks the new container
+      # if it is healthy. The step fails if either one fails.
+      - name: Restart the container on EC2
+        env:
+          INSTANCE: ${{ vars.EC2_INSTANCE_ID }}
+        run: |
+          jq -n --rawfile redeploy deploy/redeploy.sh \
+            '{commands: [$redeploy, "curl -fsS --retry 20 --retry-delay 3 --retry-all-errors localhost/api/health"]}' > redeploy.json
+          COMMAND=$(aws ssm send-command --instance-ids "$INSTANCE" --document-name AWS-RunShellScript \
+            --parameters file://redeploy.json --query Command.CommandId --output text)
+          aws ssm wait command-executed --command-id "$COMMAND" --instance-id "$INSTANCE" || true
+          aws ssm get-command-invocation --command-id "$COMMAND" --instance-id "$INSTANCE" \
+            --query '[Status, StandardOutputContent, StandardErrorContent]' --output text
+          test "$(aws ssm get-command-invocation --command-id "$COMMAND" --instance-id "$INSTANCE" \
+            --query Status --output text)" = Success
