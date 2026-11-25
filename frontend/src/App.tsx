@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent } from "react";
 import FormTrend from "./FormTrend";
 import SessionsTable from "./SessionsTable";
 import StatsPanel from "./StatsPanel";
+import { formatPct } from "./format";
 import type { FormTrendRow, Session, SessionStatus, SessionSummary, Stats } from "./types";
 import Viewer from "./Viewer";
 
@@ -120,7 +121,10 @@ export default function App() {
   return (
     <>
       <header>
-        <h1>CourtIQ</h1>
+        <div>
+          <h1>CourtIQ</h1>
+          <p className="detail">Upload a shooting clip. See every make and miss, and how your form held up.</p>
+        </div>
         <label className={working ? "button disabled" : "button"}>
           Upload video
           <input
@@ -133,6 +137,15 @@ export default function App() {
       </header>
 
       <main>
+        {/* Everything uploaded so far, in four numbers. */}
+        {stats && history.length > 0 && (
+          <dl className="totals">
+            <div><dt>Sessions</dt><dd>{history.length}</dd></div>
+            <div><dt>Shots</dt><dd>{stats.overall.makes + stats.overall.misses}</dd></div>
+            <div><dt>Made</dt><dd>{stats.overall.makes}</dd></div>
+            <div><dt>Shooting</dt><dd>{formatPct(stats.overall.shooting_pct)}</dd></div>
+          </dl>
+        )}
         <Viewer session={session} uploading={uploading} failed={failed} />
         <div className="tables">
           <SessionsTable

@@ -11,8 +11,9 @@
 
   color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
+  scrollbar-color: var(--line) var(--bg);
   color: var(--text);
   background: var(--bg);
 }
@@ -52,21 +53,54 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 16px;
-  padding-bottom: 16px;
+  gap: 16px;
+  padding-top: 20px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
 
 h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin-bottom: 4px;
   font-size: 1.125rem;
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
-h2 {
-  margin-bottom: 12px;
-  font-size: 0.9375rem;
-  font-weight: 600;
+/* The four totals under the header: small label, larger number, thin dividers between. */
+.totals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.totals div {
+  padding: 14px 20px;
+}
+
+.totals div + div {
+  border-left: 1px solid var(--line);
+}
+
+.totals dt {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.totals dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 /* Quiet button for a rare, destructive action. Turns red on hover. */
@@ -92,8 +126,8 @@ h2 {
 
 main {
   display: grid;
-  gap: 40px;
-  padding-top: 24px;
+  gap: 48px;
+  padding-top: 28px;
   padding-bottom: 48px;
 }
 
@@ -104,8 +138,9 @@ main {
 
 /* Upload button. The real file input is hidden; the label opens it. */
 .button {
-  padding: 8px 14px;
-  border-radius: 6px;
+  flex: none;
+  padding: 10px 18px;
+  border-radius: 8px;
   color: #141414;
   background: var(--accent);
   font-weight: 600;
@@ -154,13 +189,63 @@ video {
 .placeholder {
   display: grid;
   place-content: center;
-  gap: 4px;
+  gap: 8px;
   min-height: 320px;
-  padding: 24px;
+  padding: 32px 24px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel);
   text-align: center;
+}
+
+/* The three steps on the empty page. Left-aligned so the lines are easy to read. */
+.steps {
+  max-width: 46ch;
+  margin: 4px 0 8px;
+  padding-left: 1.4em;
+  text-align: left;
+}
+
+.steps li {
+  padding: 4px 0 4px 4px;
+}
+
+.steps li::marker {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+/* A thin bar that slides back and forth while a video is being analyzed. */
+.progress {
+  width: 220px;
+  height: 4px;
+  margin: 12px auto 0;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.progress::before {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  content: "";
+  animation: slide 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes slide {
+  from { transform: translateX(-20%); }
+  to { transform: translateX(170%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress::before {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .shots h2 {
@@ -198,33 +283,38 @@ video {
   background: var(--panel);
 }
 
+/* Make and miss labels: coloured text on a faint tint of the same colour. */
 .make,
 .miss {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
   font-size: 0.8125rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
 .make {
   color: var(--make);
+  background: rgb(62 207 110 / 0.12);
 }
 
 .miss {
   color: var(--miss);
+  background: rgb(242 97 88 / 0.12);
 }
 
 /* Tables: sessions on the left (wider), monthly stats on the right. */
 .tables {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 40px;
+  gap: 48px;
   align-items: start;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -235,11 +325,14 @@ td {
   text-align: left;
 }
 
-thead th {
+thead th,
+thead th.num {
   padding-top: 0;
   color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 500;
+  vertical-align: bottom;
+  white-space: normal;
 }
 
 tfoot th,
@@ -261,7 +354,31 @@ tfoot td {
 
 /* The line under a heading that says what the columns mean. */
 .caption {
-  margin-bottom: 12px;
+  max-width: 75ch;
+  margin-bottom: 16px;
+}
+
+/* What each form number means: the name on the left, one plain line on the right. */
+.legend {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  max-width: 75ch;
+  margin: 8px 0 12px;
+  font-size: 0.875rem;
+}
+
+.legend div {
+  display: contents;
+}
+
+.legend dt {
+  font-weight: 600;
+}
+
+.legend dd {
+  margin: 0;
+  color: var(--muted);
 }
 
 .clip {
@@ -397,6 +514,27 @@ figure svg {
 
   .placeholder {
     min-height: 200px;
+  }
+
+  header .detail {
+    display: none;
+  }
+
+  .totals div {
+    padding: 10px 12px;
+  }
+
+  .totals dd {
+    font-size: 1.25rem;
+  }
+
+  .legend {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .legend dd {
+    margin-bottom: 6px;
   }
 
   .shots ol {

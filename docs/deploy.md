@@ -187,8 +187,12 @@ gh variable set EC2_INSTANCE_ID --body <instance>
    "Action": "sts:AssumeRoleWithWebIdentity",
    "Condition": {"StringEquals": {
      "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-     "token.actions.githubusercontent.com:sub": "repo:drewthedude24/CourtIQ:ref:refs/heads/main"}}}]}
+     "token.actions.githubusercontent.com:sub": "repo:drewthedude24@<owner id>/CourtIQ@<repo id>:ref:refs/heads/main"}}}]}
 ```
+
+The two ids are GitHub's permanent numbers for the account and the repo. GitHub puts them in
+the name it signs, so the plain `repo:drewthedude24/CourtIQ:...` is refused. The exact prefix
+comes from `gh api repos/drewthedude24/CourtIQ/actions/oidc/customization/sub`.
 
 `github-deploy.json` allows pushing to the one image repo and running a command on the one
 server. Note that "a command" means any shell command, as root, on that server.

@@ -7,6 +7,7 @@ export default function StatsPanel({ stats }: { stats: Stats | null }) {
   return (
     <section>
       <h2>Shooting by month</h2>
+      <p className="detail caption">Makes and misses across all sessions.</p>
       {stats.months.length === 0 ? (
         <p className="detail">No shots yet.</p>
       ) : (
@@ -16,7 +17,7 @@ export default function StatsPanel({ stats }: { stats: Stats | null }) {
               <th>Month</th>
               <th className="num">Makes</th>
               <th className="num">Misses</th>
-              <th className="num">FG%</th>
+              <th className="num">Shooting %</th>
             </tr>
           </thead>
           <tbody>
