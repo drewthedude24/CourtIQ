@@ -16,6 +16,8 @@ export type Shot = FormNumbers & {
   result: "MAKE" | "MISS";
   timestamp_s: number;
   reason: string | null;
+  // The picture of where each number was read, for the numbers that were measured.
+  pictures: Partial<Record<keyof FormNumbers, string>>;
 };
 
 // The average of each form number over a group of shots, and its spread: how much it

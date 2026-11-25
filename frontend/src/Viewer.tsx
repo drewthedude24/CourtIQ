@@ -1,7 +1,8 @@
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import FormPictures from "./FormPictures";
 import FormTable from "./FormTable";
 import { formatDate, formatTime } from "./format";
-import type { Session } from "./types";
+import type { Session, Shot } from "./types";
 
 // Start playback a little before the detected moment, so you see the shot go up.
 const LEAD_IN_S = 2;
@@ -18,11 +19,15 @@ function Message({ children }: { children: ReactNode }) {
 
 export default function Viewer({ session, uploading, failed }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // The clicked shot, whose form pictures show under the video. Kept with its session's id,
+  // so opening another session doesn't show a shot from the last one.
+  const [picked, setPicked] = useState<{ sessionId: string; shotNumber: number } | null>(null);
 
-  function jumpTo(seconds: number) {
+  function jumpTo(shot: Shot) {
+    if (session) setPicked({ sessionId: session.id, shotNumber: shot.shot_number });
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = Math.max(0, seconds - LEAD_IN_S);
+    video.currentTime = Math.max(0, shot.timestamp_s - LEAD_IN_S);
     video.play();
     // The shot form table is below the video, so bring the video back into view.
     video.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -49,6 +54,9 @@ export default function Viewer({ session, uploading, failed }: Props) {
   }
 
   const attempts = session.makes + session.misses;
+  const pickedShot = picked?.sessionId === session.id
+    ? session.shots.find((shot) => shot.shot_number === picked.shotNumber)
+    : undefined;
   return (
     <>
       <section className="viewer">
@@ -67,7 +75,7 @@ export default function Viewer({ session, uploading, failed }: Props) {
             <ol>
               {session.shots.map((shot) => (
                 <li key={shot.shot_number}>
-                  <button type="button" onClick={() => jumpTo(shot.timestamp_s)}>
+                  <button type="button" onClick={() => jumpTo(shot)}>
                     <span className="detail">{shot.shot_number}</span>
                     <span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result}</span>
                     <span className="time">{formatTime(shot.timestamp_s)}</span>
@@ -78,7 +86,8 @@ export default function Viewer({ session, uploading, failed }: Props) {
           )}
         </aside>
       </section>
-      <FormTable session={session} onJump={jumpTo} />
+      {pickedShot && <FormPictures shot={pickedShot} />}
+      <FormTable session={session} onJump={jumpTo} picked={pickedShot?.shot_number ?? null} />
     </>
   );
 }

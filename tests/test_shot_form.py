@@ -158,6 +158,16 @@ def test_numbers_for_a_shot_seen_from_the_side():
     assert numbers["bend_s"] == pytest.approx(DEEPEST_S, abs=2 / FPS)
 
 
+def test_each_number_remembers_the_frame_it_was_read_on():
+    seen_at = measure(shot(), RIM_TIME_S)["seen_at"]
+
+    assert seen_at["knee_bend_deg"] == pytest.approx(DEEPEST_S, abs=2 / FPS)
+    assert RELEASE_S - 0.6 <= seen_at["elbow_bend_deg"] <= RELEASE_S
+    assert RELEASE_S <= seen_at["arm_angle_deg"] <= RELEASE_S + 0.3
+    assert RELEASE_S - 0.15 <= seen_at["jump"] <= RELEASE_S + 0.3
+    assert seen_at["flight_time_s"] == pytest.approx(RELEASE_S, abs=1 / FPS)
+
+
 def test_the_same_numbers_come_out_when_the_shot_is_seen_from_behind():
     numbers = measure(shot(from_behind=True, reach_deg=50), RIM_TIME_S)
 

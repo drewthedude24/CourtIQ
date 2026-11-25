@@ -1,18 +1,20 @@
 import { FORM_COLUMNS, formatNumber } from "./format";
-import type { FormSummary, Session } from "./types";
+import type { FormSummary, Session, Shot } from "./types";
 
 // A number this many spreads away from the session's average is marked as unusual.
 const ODD_SPREADS = 2;
 
 type Props = {
   session: Session;
-  // Called with a shot's time when its row is clicked, to play the video from there.
-  onJump: (seconds: number) => void;
+  // Called with a shot when its row is clicked, to play it and show its pictures.
+  onJump: (shot: Shot) => void;
+  // The shot number whose pictures are showing, or null.
+  picked: number | null;
 };
 
 // The shooter's form on every shot of the open session, then the averages for makes,
 // misses and all shots, and how much each number changes from shot to shot.
-export default function FormTable({ session, onJump }: Props) {
+export default function FormTable({ session, onJump, picked }: Props) {
   if (session.shots.length === 0) return null;
 
   const { makes, misses, all } = session.form;
@@ -53,7 +55,7 @@ export default function FormTable({ session, onJump }: Props) {
       <p className="detail caption">
         Knee and elbow: the deepest bend before the release (180° is straight). Arm: how steeply it
         points up at the release. Jump: in shoulder-heights. Flight: from the hand to the rim.
-        Click a shot to watch it. A number far from this session's average is{" "}
+        Click a shot to watch it and see where its numbers were read. A number far from this session's average is{" "}
         <span className="odd">marked</span>.
       </p>
       <table>
@@ -69,7 +71,11 @@ export default function FormTable({ session, onJump }: Props) {
         <tbody>
           {session.shots.map((shot) => (
             // Clicking anywhere on the row plays that shot. The button is there for the keyboard.
-            <tr key={shot.shot_number} className="clickable" onClick={() => onJump(shot.timestamp_s)}>
+            <tr
+              key={shot.shot_number}
+              className={shot.shot_number === picked ? "clickable selected" : "clickable"}
+              onClick={() => onJump(shot)}
+            >
               <td className="clip">
                 <button type="button" aria-label={`Play shot ${shot.shot_number}`}>{shot.shot_number}</button>
               </td>

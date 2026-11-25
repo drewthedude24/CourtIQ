@@ -25,12 +25,14 @@ def uploaded_clip(monkeypatch):
 
     The real detector takes minutes and ffmpeg needs a real video, so both are
     replaced: the fake detector writes a tiny annotated.mp4 and reports one make
-    with two form numbers measured.
+    with two form numbers measured, and a picture for one of them.
     TestClient finishes the background processing job before the upload returns.
     """
 
     def fake_detector(input_path, output_directory):
         (Path(output_directory) / "annotated.mp4").write_bytes(b"fake video")
+        (Path(output_directory) / "form").mkdir()
+        (Path(output_directory) / "form" / "1_knee_bend_deg.jpg").write_bytes(b"fake picture")
         form = {**dict.fromkeys(database.FORM_NUMBERS), "knee_bend_deg": 95.5, "flight_time_s": 1.0}
         return [{"result": "MAKE", "timestamp_s": 1.5, "form": form}]
 
@@ -90,6 +92,30 @@ def test_session_comes_with_form_numbers(uploaded_clip):
     assert (shot["knee_bend_deg"], shot["elbow_bend_deg"], shot["flight_time_s"]) == (95.5, None, 1.0)
     assert session["form"]["makes"]["knee_bend_deg"] == 95.5
     assert session["form"]["misses"] is None
+
+
+def test_each_shot_lists_its_form_pictures(uploaded_clip):
+    shot = client.get(f"/api/sessions/{uploaded_clip}").json()["shots"][0]
+
+    assert shot["pictures"] == {
+        "knee_bend_deg": f"/api/sessions/{uploaded_clip}/shots/1/form/knee_bend_deg.jpg",
+    }
+
+
+def test_a_form_picture_can_be_loaded(uploaded_clip):
+    response = client.get(f"/api/sessions/{uploaded_clip}/shots/1/form/knee_bend_deg.jpg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content == b"fake picture"
+
+
+@pytest.mark.parametrize("name", ["elbow_bend_deg", "annotated"])
+def test_a_missing_or_unknown_picture_is_not_found(uploaded_clip, name):
+    # "annotated" is not a form number, so it can never reach a file outside the form folder.
+    response = client.get(f"/api/sessions/{uploaded_clip}/shots/1/form/{name}.jpg")
+
+    assert response.status_code == 404
 
 
 def test_form_trend_has_one_row_per_measured_session(uploaded_clip):
