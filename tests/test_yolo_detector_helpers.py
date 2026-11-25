@@ -1,6 +1,6 @@
 import unittest
 
-from vision.yolo_detector import YoloDetector
+from vision.yolo_detector import YoloDetector, with_full_precision
 
 
 def detection(center, bbox, confidence, source="full", class_id=0):
@@ -71,6 +71,19 @@ class YoloDetectorHelperTests(unittest.TestCase):
         )
 
         self.assertFalse(should_skip)
+
+    def test_openvino_models_compile_in_full_precision(self):
+        calls = []
+
+        def fake_compile_model(core, model, device_name=None, config=None):
+            calls.append((device_name, config))
+
+        with_full_precision(fake_compile_model)("core", "model", "CPU", {"PERFORMANCE_HINT": "LATENCY"})
+
+        self.assertEqual(
+            calls,
+            [("CPU", {"PERFORMANCE_HINT": "LATENCY", "INFERENCE_PRECISION_HINT": "f32"})],
+        )
 
 
 if __name__ == "__main__":
