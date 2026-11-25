@@ -12,6 +12,7 @@ from rim_shot_detector import RimShotDetector
 from pose_model import PoseModel
 from shot_form import FORM_WINDOW_S, ball_and_hoop, measure
 from form_pictures import save_pictures
+from video_writer import start_video_writer
 import debug_overlay
 
 
@@ -20,7 +21,7 @@ OFFLINE_YOLO_IMAGE_SIZE = 640
 OFFLINE_FOCUS_IMAGE_SIZE = 448
 OFFLINE_FULL_FRAME_INTERVAL = 1
 OFFLINE_CONFIDENCE_THRESHOLD = 0.12
-OFFLINE_VIDEO_CODEC = "mp4v"
+OFFLINE_VIDEO_CODEC = "h264"
 
 yolo_detector = YoloDetector(
     confidence_threshold=OFFLINE_CONFIDENCE_THRESHOLD,
@@ -238,16 +239,7 @@ def process_vid(input_path, output_folder):
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    fourcc = cv.VideoWriter_fourcc(*OFFLINE_VIDEO_CODEC)
-    writer = cv.VideoWriter(
-        str(output_path / "annotated.mp4"),
-        fourcc,
-        fps,
-        (source_width, source_height),
-    )
-    if not writer.isOpened():
-        cap.release()
-        raise RuntimeError("Could not create annotated.mp4")
+    writer = start_video_writer(output_path / "annotated.mp4", fps, source_width, source_height)
 
     # Each clip needs fresh state so a previous clip cannot affect the next one.
     ball_tracker = PredictiveBallTracker()
@@ -381,7 +373,7 @@ def process_vid(input_path, output_folder):
                     miss_count,
                 )
                 t = lap(timings, "drawing", t)
-                writer.write(output_frame)
+                writer.stdin.write(output_frame.data)
                 t = lap(timings, "video_write", t)
 
                 write_json_line(
@@ -421,8 +413,14 @@ def process_vid(input_path, output_folder):
                 miss_count += last_result["result"] == "MISS"
                 shot_events.append(shot_event(last_result))
     finally:
-        writer.release()
+        # Closing its input tells ffmpeg there are no more frames. Then wait for it to finish the file.
+        t = time.perf_counter()
+        writer.stdin.close()
+        video_written = writer.wait() == 0
+        lap(timings, "video_write", t)
         cap.release()
+    if not video_written:
+        raise RuntimeError("ffmpeg could not write annotated.mp4")
 
     t = time.perf_counter()
     pose_frames = add_form(input_path, inference_size, shot_events, frame_notes, output_path)

@@ -1,28 +1,26 @@
 import subprocess
 
-import cv2 as cv
 import numpy as np
 
-from backend.app import convert_to_h264
+from vision.video_writer import start_video_writer
 
 
-def video_codec(path):
+def probe(path, entry):
     result = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(path)],
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+         "-show_entries", f"stream={entry}", "-of", "csv=p=0", str(path)],
         capture_output=True, text=True, check=True,
     )
     return result.stdout.strip()
 
 
-def test_convert_to_h264_rewrites_mp4v_video_in_place(tmp_path):
+def test_video_writer_makes_an_h264_video_with_every_frame(tmp_path):
     path = tmp_path / "annotated.mp4"
-    writer = cv.VideoWriter(str(path), cv.VideoWriter_fourcc(*"mp4v"), 30, (64, 64))
+    writer = start_video_writer(path, fps=30, width=64, height=48)
     for _ in range(10):
-        writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
-    writer.release()
-    assert video_codec(path) == "mpeg4"
+        writer.stdin.write(np.zeros((48, 64, 3), dtype=np.uint8).data)
+    writer.stdin.close()
 
-    convert_to_h264(path)
-
-    assert video_codec(path) == "h264"
+    assert writer.wait() == 0
+    assert probe(path, "codec_name") == "h264"
+    assert probe(path, "nb_read_frames") == "10"
