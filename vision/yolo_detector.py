@@ -15,7 +15,24 @@ def model_for_this_machine(model):
     if torch.backends.mps.is_available():
         return model
     openvino_model = model.removesuffix(".pt") + "_openvino_model"
-    return openvino_model if Path(openvino_model).is_dir() else model
+    if not Path(openvino_model).is_dir():
+        return model
+    import openvino  # Only installed in the Docker image.
+    openvino.Core.compile_model = with_full_precision(openvino.Core.compile_model)
+    return openvino_model
+
+
+def with_full_precision(compile_model):
+    """Make OpenVINO compile every model in 32-bit float.
+
+    On Intel CPUs with AMX (like the EC2 server) OpenVINO picks 16-bit bfloat16 by default,
+    which turned a missed shot in longvid.mov into a make. Ultralytics has no setting for
+    this, so the precision is added to each compile call.
+    """
+    def compile_full_precision(core, model, device_name=None, config=None, **kwargs):
+        config = {**(config or {}), "INFERENCE_PRECISION_HINT": "f32"}
+        return compile_model(core, model, device_name, config, **kwargs)
+    return compile_full_precision
 
 
 class YoloDetector():
