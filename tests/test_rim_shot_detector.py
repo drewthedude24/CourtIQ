@@ -238,3 +238,13 @@ def test_shot_still_being_watched_when_the_video_ends_is_reported():
 
     assert final["event"] and final["result"] == "MISS"
     assert final["shot_time_s"] == 3 / FPS
+
+
+def test_a_flat_box_at_the_rim_is_not_a_ball_and_does_not_start_a_shot():
+    # The real ball is still high in the air while the model calls a flat strip at the rim a ball.
+    detector = RimShotDetector()
+    strip = {"class_id": 0, "confidence": 0.2, "bbox": (310, 425, 350, 435), "center": (330, 430)}
+    for i in range(10):
+        result = detector.update([hoop(), ball(240, 200), strip], i / FPS)
+
+    assert result["status"] == "WAITING"

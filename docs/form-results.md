@@ -199,6 +199,11 @@ saved files after the fix in [Two shots the ball rule got wrong](#two-shots-the-
 - **The elbow's wiggle (3.0°) is close to its spread (3.7°).** Its average is steady, but a
   difference of a few degrees between two shots means nothing.
 
+- **After the second speed round (2026-11-25)** the form pass stops running pose once the ball
+  has been out of the hands for 0.35 s, and the frames are read a faster way that makes the
+  picture a little darker. The numbers move by about 1° (knee, arm) and 2° (elbow) per shot,
+  and their averages stay where they were. The table is in `docs/speed-plan.md`, round 2.
+
 ### What it costs
 
 | | Before | With form |

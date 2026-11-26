@@ -49,6 +49,8 @@ class PredictiveBallTrackerTests(unittest.TestCase):
         self.assertFalse(result["detected"])
         self.assertIsNotNone(result["center"])
         self.assertEqual(result["missing_frames"], 1)
+        # The overlay draws the ring from these on a frame with no detection.
+        self.assertEqual(result["width"], 24)
 
     def test_rejects_implausible_jump(self):
         tracker = PredictiveBallTracker(base_gate_distance=60.0)

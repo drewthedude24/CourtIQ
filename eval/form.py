@@ -21,7 +21,7 @@ from statistics import mean, median, stdev
 import cv2 as cv
 
 from eval.score import LABELS_PATH, OUTPUT_DIR, VIDEO_DIR, match_shots, replay
-from vision.shot_form import FORM_WINDOW_S, NUMBERS, SEEN, ball_and_hoop, measure
+from vision.shot_form import FORM_WINDOW_S, NUMBERS, SEEN, measure
 
 BONES = [("shoulder", "elbow"), ("elbow", "wrist"), ("shoulder", "hip"), ("hip", "knee"), ("knee", "ankle")]
 
@@ -41,7 +41,7 @@ def labeled_shots():
 
 
 def pose_frames(clip):
-    """The frames the pipeline ran the pose model on, ready for measure(), in time order."""
+    """The frames the form pass looked at before each shot, ready for measure(), in time order."""
     folder = OUTPUT_DIR / Path(clip).stem
     with (folder / "frames.jsonl").open() as f:
         records = [json.loads(line) for line in f]
@@ -51,7 +51,7 @@ def pose_frames(clip):
             pose = json.loads(line)
             record = records[pose["frame_index"]]
             frames.append({
-                "t": record["timestamp_s"], **ball_and_hoop(record["detections"]),
+                "t": record["timestamp_s"], "balls": pose["balls"], "hoop": pose["hoop"],
                 "rim": record["shot_result"]["rim_center"],
                 "index": pose["frame_index"], "points": pose["points"], "world": pose["world"],
             })

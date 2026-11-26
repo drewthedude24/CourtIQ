@@ -37,7 +37,6 @@ WEB_FULL_IMAGE_SIZE = 640
 # Focus crops are about 300x430 pixels, so 448 runs them near their real size
 # instead of blowing them up to 640, which cost more than the full frame.
 WEB_FOCUS_IMAGE_SIZE = 448
-WEB_FULL_FRAME_INTERVAL = 1
 WEB_CONFIDENCE_THRESHOLD = 0.12
 
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -74,7 +73,6 @@ def load_vision_processor():
         offline_runner.OFFLINE_INFERENCE_SIZE = WEB_INFERENCE_SIZE
         offline_runner.OFFLINE_YOLO_IMAGE_SIZE = WEB_FULL_IMAGE_SIZE
         offline_runner.OFFLINE_FOCUS_IMAGE_SIZE = WEB_FOCUS_IMAGE_SIZE
-        offline_runner.OFFLINE_FULL_FRAME_INTERVAL = WEB_FULL_FRAME_INTERVAL
         offline_runner.OFFLINE_CONFIDENCE_THRESHOLD = WEB_CONFIDENCE_THRESHOLD
         offline_runner.yolo_detector.image_size = WEB_FULL_IMAGE_SIZE
         offline_runner.yolo_detector.focus_image_size = WEB_FOCUS_IMAGE_SIZE

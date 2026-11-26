@@ -538,6 +538,8 @@ class PredictiveBallTracker:
             "center": self._as_int_point(center) if center is not None else None,
             "velocity": self.velocity,
             "history": self.history_pos,
+            # How wide the ball was when last detected, for drawing a ring of the right size.
+            "width": math.sqrt(self.last_area) if self.last_area else None,
             "missing_frames": self.missing_frames,
             "tracking_status": tracking_status,
             "predicted_center": (

@@ -26,7 +26,8 @@ flowchart LR
 ```
 
 1. The API saves the upload and runs the detector in the background.
-2. A YOLO model finds the ball and the hoop in each frame. A shot is the ball coming down
+2. A YOLO model finds the ball and the hoop. It looks at every 4th frame, and at every frame
+   once a shot is on its way to the rim. A shot is the ball coming down
    from above the rim to rim height within a second. If the ball then shows up under the rim
    twice, it's a make. If it bounces back up above the rim, it's a miss.
    ([vision/rim_shot_detector.py](vision/rim_shot_detector.py))
@@ -44,9 +45,11 @@ Measured on 6 clips I filmed by hand, 63 shots in total (32 makes, 31 misses):
 
 | Found | Make or miss called right | False shots | Fully correct |
 |---|---|---|---|
-| 63 of 63 | 61 of 63 | 0 | 61 of 63 (97%) |
+| 62 of 63 | 60 of 62 | 0 | 60 of 63 (95%) |
 
-Both mistakes are misses that were called makes. The rules were tuned on these
+Two mistakes are misses that were called makes. The third is an airball that leaves the picture
+at rim height and is not found. Before the detector was made about twice as fast it found that
+one too (61 of 63, [docs/speed-plan.md](docs/speed-plan.md)). The rules were tuned on these
 same 6 clips, so new clips will probably score a bit lower. Every version of the detector and
 its score is in [docs/detector-results.md](docs/detector-results.md).
 
@@ -70,8 +73,8 @@ You need Docker.
 docker compose up -d --build
 ```
 
-Then open http://localhost:8000. A 47 second clip took about 73 seconds to process in Docker
-on my laptop.
+Then open http://localhost:8000. A 47 second clip took about 42 seconds to process in Docker
+on my laptop with the container limited to 2 CPUs.
 
 To run the tests (they use the Postgres container from above):
 

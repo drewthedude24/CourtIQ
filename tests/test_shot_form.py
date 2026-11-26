@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from vision.shot_form import angle, ball_and_hoop, find_arrival, find_release, measure
+from vision.shot_form import angle, ball_and_hoop, ball_in_hand, find_arrival, find_release, measure
 
 FPS = 30
 SIDES = ("left", "right")
@@ -203,3 +203,14 @@ def test_half_the_frames_give_nearly_the_same_knee_bend():
     every_other = measure(shot()[::2], RIM_TIME_S)["knee_bend_deg"]
 
     assert every_other == pytest.approx(every_frame, abs=5)
+
+
+def test_the_ball_is_in_the_hand_until_the_release():
+    assert ball_in_hand(stick_figure(RELEASE_S - 0.2))
+    assert not ball_in_hand(stick_figure(RELEASE_S + 0.2))
+
+
+def test_a_hidden_ball_or_hidden_wrists_count_as_still_in_the_hand():
+    in_flight = stick_figure(RELEASE_S + 0.2)
+    assert ball_in_hand(dict(in_flight, balls=[]))
+    assert ball_in_hand(stick_figure(RELEASE_S + 0.2, hidden=("wrist",)))

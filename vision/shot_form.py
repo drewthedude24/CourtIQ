@@ -50,6 +50,9 @@ STRAIGHT_WINDOW_S = 0.15
 GROUND_WINDOW_S = 0.1
 # The arm keeps rising for a moment after the ball leaves.
 REACH_WINDOW_S = 0.3
+# Once the ball has been out of the hands this long, the shooter's part is over and the form pass
+# stops looking. Just past REACH_WINDOW_S, the last moment any number is read.
+IN_THE_AIR_S = 0.35
 # A number needs at least this many frames in its window.
 MIN_FRAMES = 3
 # Shoulder-to-wrist is about 0.68 of hip-to-ankle on an average body (Winter's body-segment tables).
@@ -167,6 +170,14 @@ def nearest_hand(frame, ball):
         if wrist and width > 0:
             reaches.append((math.dist(wrist[0], (x, y)) / width, side))
     return min(reaches, default=(None, None))
+
+
+def ball_in_hand(frame):
+    """False only when a ball and a wrist are both seen and no ball is within reach of a hand.
+    When either is hidden nobody can tell, and the ball counts as still held."""
+    reaches = [nearest_hand(frame, ball)[0] for ball in frame["balls"]]
+    reaches = [reach for reach in reaches if reach is not None]
+    return not reaches or min(reaches) <= HAND_REACH
 
 
 def find_arrival(frames, shot_time_s):
