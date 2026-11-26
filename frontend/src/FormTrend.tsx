@@ -68,7 +68,13 @@ function TrendChart({ rows, label, value, spread, print, detail }: ChartProps) {
               </text>
             )}
             {(rows.length <= MAX_NAMES || i === 0 || i === last) && (
-              <text className="trend-name" x={x(point.index)} y={HEIGHT - 6} textAnchor="middle">
+              <text
+                className="trend-name"
+                x={x(point.index)}
+                y={HEIGHT - 6}
+                // The first and last names lean inward, so a long one isn't cut off at the edge.
+                textAnchor={last === 0 ? "middle" : i === 0 ? "start" : i === last ? "end" : "middle"}
+              >
                 {point.row.original_filename.replace(/\.\w+$/, "")}
               </text>
             )}
@@ -90,7 +96,7 @@ export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
   if (rows.length === 0) return null;
 
   return (
-    <section className="form-trend">
+    <section id="trend" className="form-trend">
       <h2>Form over time</h2>
       <p className="detail caption">
         Oldest session on the left. Each dot is a session's average. The thin bar is how much the

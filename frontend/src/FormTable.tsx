@@ -80,7 +80,7 @@ export default function FormTable({ session, onJump, picked }: Props) {
               className={shot.shot_number === picked ? "clickable selected" : "clickable"}
               onClick={() => onJump(shot)}
             >
-              <td className="clip">
+              <td className="shot-number">
                 <button type="button" aria-label={`Play shot ${shot.shot_number}`}>{shot.shot_number}</button>
               </td>
               <td><span className={shot.result === "MAKE" ? "make" : "miss"}>{shot.result === "MAKE" ? "Make" : "Miss"}</span></td>

@@ -29,7 +29,7 @@ def uploaded_clip(monkeypatch):
     TestClient finishes the background processing job before the upload returns.
     """
 
-    def fake_detector(input_path, output_directory):
+    def fake_detector(input_path, output_directory, on_progress):
         (Path(output_directory) / "annotated.mp4").write_bytes(b"fake video")
         (Path(output_directory) / "form").mkdir()
         (Path(output_directory) / "form" / "1_knee_bend_deg.jpg").write_bytes(b"fake picture")
@@ -115,6 +115,30 @@ def test_a_missing_or_unknown_picture_is_not_found(uploaded_clip, name):
     response = client.get(f"/api/sessions/{uploaded_clip}/shots/1/form/{name}.jpg")
 
     assert response.status_code == 404
+
+
+def test_a_running_job_reports_how_far_it_is(monkeypatch):
+    # The fake detector says it is on frame 30 of 120, then asks the API about its own
+    # session the way the page does while it waits.
+    seen = []
+
+    def fake_detector(input_path, output_directory, on_progress):
+        on_progress("detect", 30, 120)
+        session_id = Path(output_directory).name
+        seen.append(client.get(f"/api/sessions/{session_id}").json()["progress"])
+        (Path(output_directory) / "annotated.mp4").write_bytes(b"fake video")
+        return []
+
+    monkeypatch.setattr(api, "load_vision_processor", lambda: fake_detector)
+
+    files = {"file": ("clip.mov", b"fake upload", "video/quicktime")}
+    session_id = client.post("/api/sessions", files=files).json()["id"]
+
+    assert seen == [{"stage": "detect", "done": 30, "total": 120}]
+    # A finished job has nothing left to report.
+    assert client.get(f"/api/sessions/{session_id}").json()["progress"] is None
+    shutil.rmtree(api.UPLOAD_ROOT / session_id, ignore_errors=True)
+    shutil.rmtree(api.RESULT_ROOT / session_id, ignore_errors=True)
 
 
 def test_form_trend_has_one_row_per_measured_session(uploaded_clip):

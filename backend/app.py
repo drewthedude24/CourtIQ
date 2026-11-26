@@ -55,6 +55,10 @@ app.add_middleware(
 
 vision_lock = Lock()
 process_video = None
+# How far each running job is, for the page's progress bar: session id -> stage, done, total.
+# "detect" counts video frames, then "form" counts shots. Kept in memory, since it only matters
+# while the job runs and the job runs inside this same process.
+progress = {}
 
 
 def load_vision_processor():
@@ -109,16 +113,21 @@ def public_session(session):
             for shot in session["shots"]
         ],
         "form": session["form"],
+        "progress": progress.get(session["id"]),
     }
 
 
 def run_processing_job(session_id, input_path, output_directory):
     mark_processing(session_id)
+
+    def report(stage, done, total):
+        progress[session_id] = {"stage": stage, "done": done, "total": total}
+
     try:
         processor = load_vision_processor()
         # The model objects are shared, so this temporary MVP handles one job at a time.
         with vision_lock:
-            events = processor(str(input_path), str(output_directory))
+            events = processor(str(input_path), str(output_directory), on_progress=report)
         output_path = Path(output_directory) / "annotated.mp4"
         if not output_path.exists():
             raise RuntimeError("Vision processing finished without creating annotated.mp4")
@@ -126,6 +135,8 @@ def run_processing_job(session_id, input_path, output_directory):
     except Exception as error:
         traceback.print_exc()
         mark_failed(session_id, str(error))
+    finally:
+        progress.pop(session_id, None)
 
 
 @app.get("/api/health")
