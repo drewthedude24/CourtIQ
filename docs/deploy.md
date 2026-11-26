@@ -215,15 +215,15 @@ The deploy job fails if the server is stopped (section 7). The tests still run.
 ## Gotchas found while deploying
 
 - **OpenVINO precision.** The server's CPU (Xeon 8488C) has AMX, and OpenVINO then runs in
-  bfloat16 by default. That turned longvid's shot at 10.6 s from a miss into a make.
-  `vision/yolo_detector.py: with_full_precision()` forces 32-bit float. Same 6 shots as the
-  Mac afterwards, but the ball detector went from 48 s to 79 s on longvid.
+  bfloat16 (16-bit floats) by default, which is faster. An earlier version forced 32-bit
+  because 16-bit flipped one longvid shot. With the current pipeline 16-bit gets longvid
+  6 of 6 and the six eval clips the same 60 of 63, so nothing is forced any more
+  (`docs/speed-plan.md`, round 3).
 - **Free plan limits.** RDS backups are capped at 1 day (7 was refused). Only some instance
   sizes are allowed (`aws ec2 describe-instance-types --filters Name=free-tier-eligible,Values=true`).
-- **Speed on 2 vCPUs.** longvid.mov (47 s): 171 s of processing plus 40 s of H.264 conversion,
-  about 3.6 minutes from upload to result. The Mac's Docker (15 vCPUs) takes 73 s.
-  These were measured before the speed changes in `docs/speed-plan.md` (one video encode
-  instead of two, the form pass and the full-frame detector in their own threads). On the
-  laptop those cut the job by 30% on 2 CPUs and 18% on 1 CPU. Not measured on the server yet:
-  upload longvid.mov and read `total` in `/srv/courtiq/storage/results/<session id>/timings.json`.
-  There is no separate H.264 step any more, so `total` is the whole job.
+- **Speed on 2 vCPUs.** Measured on the server on 2026-11-26 (`docs/speed-plan.md`, round 3):
+  longvid.mov (47 s, 720p) takes about 50 s, the six eval clips run at 29.5 frames a second,
+  and a real 1080p phone clip at about 24.6. The 2 vCPUs are two hyperthreads of one real
+  core, so the server behaves like the laptop pinned to 1 CPU, not 2. It also slows down by
+  about 10% after an hour of non-stop work. To time a job: upload it and read `total` and
+  `frames` in `/srv/courtiq/storage/results/<session id>/timings.json`.

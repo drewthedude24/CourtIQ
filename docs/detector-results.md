@@ -11,6 +11,7 @@ One row is added each time the detector changes.
 | Smaller YOLO images | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 440 s | Full frame 960 to 640, zoomed-in crops 640 to 448. Full Docker run with both changes. |
 | Speed changes | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 747 s on 2 CPUs (903 s before) | No detector change. One video encode instead of two, and the form pass and the full-frame detector run in their own threads. Every saved number is identical to the run before. See `docs/speed-plan.md`. |
 | Frame skipping | 62 of 63 (98%) | 60 of 62 (97%) | 0 | 60 of 63 (95%) | 418 s on 2 CPUs (757 s before) | The detector looks at every 4th frame, and at every frame while a shot is on its way. Frames are read through ffmpeg, the ball crop is gone and a flat box no longer counts as a ball. The lost shot is an airball in `s4.mov` that leaves the picture at rim height. See `docs/speed-plan.md`, round 2. |
+| Server speed round | 62 of 63 (98%) | 60 of 62 (97%) | 0 | 60 of 63 (95%) | 480 s on the EC2 server (779 s before) | No rule change. The video is read once and shrunk by ffmpeg, the annotated video is 540p, and the detector runs in 16-bit floats on the server. Same shots right and wrong as the row above. See `docs/speed-plan.md`, round 3. |
 
 - **Found:** real shots the detector reported, within 2 seconds of the labeled time.
 - **Make/miss right:** found shots where the make or miss call matches the label.
@@ -21,6 +22,8 @@ One row is added each time the detector changes.
   existed. The "Speed changes" row is with the container pinned to 2 CPUs, like the server,
   and includes the form pass. Its "before" run was made the same hour on the same 2 CPUs.
   Before, the H.264 conversion came on top of this number. Now it is inside it.
+  The "Server speed round" row is the first one timed on the EC2 server itself (one real
+  core), so its seconds cannot be compared with the laptop rows above it.
 
 ## Setup
 

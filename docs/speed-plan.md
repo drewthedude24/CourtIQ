@@ -360,3 +360,107 @@ Whole pipeline on `longvid.mov`, 2 CPUs, one run each unless noted:
   would remove it for 150 MB or more.
 - **The form pictures read the video a third time with OpenCV**: 2.7 s on `longvid.mov`, and
   they keep OpenCV's brighter look.
+
+## Round 3: measured on the real server
+
+Measured 2026-11-26. This is the first round timed on the EC2 server itself
+(`c7i-flex.large`, one real core with two hyperthreads). The goal was a frames-per-second
+number: frames in the clip divided by the seconds the job took (`frames` and `total` in
+`timings.json`).
+
+### Result in one table (EC2 server)
+
+| | Live code before | After | Change |
+|---|---|---|---|
+| Six eval clips (720p, 14,155 frames) | 779 s, 18.2 frames a second | 480 s, 29.5 frames a second | 1.6x |
+| `longvid.mov` (720p, 1431 frames) | 76 to 84 s, 17 to 19 frames a second | 49 to 53 s, 27 to 29 frames a second | 1.6x |
+| A real phone upload (1080p, 2441 frames) | 221 s, 11.0 frames a second | 99 s, 24.6 frames a second | 2.2x |
+| Shots fully correct, six clips | 60 of 63 | 60 of 63 | same shots |
+| `longvid.mov` shots right | 5 of 6 | 6 of 6 | the 10.6 s miss is now called a miss |
+| False shots | 0 | 0 | |
+| Ring on the ball, six clips | 76% of frames | 77% | |
+| Annotated video | 720p (or the upload's own size) | 540p | smaller on purpose |
+
+- "Live code before" for the six clips and the first `longvid.mov` time is the live site
+  itself: the clips were uploaded through the page's API and the times read from the
+  server's `timings.json`.
+- Everything else ran in a second container of the same image next to the live one, with
+  the new `vision/` folder mounted over the old.
+- **The server gets slower under long load.** The same old-code run took 76.8 s early on
+  and 83.8 s after an hour of tests. So only pairs run back to back are compared: old
+  76.8 s against new 49.3 s, and later old 83.8 s against new 52.5 and 51.8 s.
+- The six-clip "before" (779 s) and "after" (480 s) were about half an hour apart, not
+  back to back.
+- The three real 1080p uploads on the server are the phone's originals of `s3`, `s5` and
+  `r1`, so the labels apply to them: 32 of 34 shots fully correct with the new code, the
+  same as their 720p copies.
+
+### What was learned first
+
+- The server ran the live code at 18 to 19 frames a second on the 720p test clips. That
+  matches the laptop pinned to 1 CPU (20), not the laptop on 2 CPUs (34).
+- **Real phone uploads are 1080p, and those ran at only 11 frames a second.** The test
+  clips are 720p copies, so no earlier round saw this. Python was handling full 1080p
+  frames: turning them into pictures, shrinking them, drawing on them and encoding them.
+
+### What was built
+
+| # | Change | Six clips on the server | Where |
+|---|---|---|---|
+| | Live code | 18.2 frames a second | |
+| 1 | **ffmpeg shrinks the video to the detector's 720p as it decodes.** Python never sees a 1080p frame, and the annotated video is no longer written at the upload's size. Nothing changes for a 720p clip. | | `vision/video_reader.py`, `vision/offline_runner.py` |
+| 2 | **The video is read once.** The main loop keeps the last 4.5 s of frames in memory, in the small form ffmpeg hands them over. When a shot is found, the form pass gets the frames before it from there. The form pictures are drawn from the same frames. Before, the video was decoded a second time for the form pass and opened a third time for the pictures. If two shots are already waiting, the main loop waits, so memory stays bounded. | | `FormPass` and `recent_frames` in `vision/offline_runner.py`, `vision/form_pictures.py` |
+| 3 | **The annotated video is saved at 540p.** The frame is shrunk before the overlay is drawn. | 23.6 with 1 to 3 | `OFFLINE_VIDEO_SIZE` in `vision/offline_runner.py` |
+| 4 | **The detector runs in 16-bit floats on the server.** `with_full_precision()` is gone, so OpenVINO uses bfloat16, which this chip has special instructions for. | 29.5 | `vision/yolo_detector.py` |
+
+On the laptop (Docker pinned to 1 CPU), where each step could be timed alone:
+
+| State | `longvid.mov` (720p) | A 1080p copy of it |
+|---|---|---|
+| `main` | 71.5 s | 113.4 s |
+| 1. ffmpeg shrinks at decode | 71.6 s | 98.3 s |
+| 2. video read once | 60.6 s | 69.3 s |
+| 3. 540p video | 57.4 s (two runs: 57.4, 57.5) | |
+
+Change 4 does nothing on the laptop, which has no such chip feature.
+
+### What it costs
+
+- **Memory.** Peak on the laptop went from 910 MB to about 1,230 MB, for the frames kept
+  in memory. The server has 3.8 GB.
+- **A smaller video.** 540 by 960 in place of 720 by 1280. The file is about a third smaller.
+- **The form pictures look a little darker**, like the annotated video already did. They
+  now come from ffmpeg's frames. OpenCV's own reader brightened the phone's HDR picture.
+- **The form numbers move a little on the server**, from the 16-bit maths. Same 63 shots,
+  compared one by one with the live code:
+
+  | Number | Shots measured before | After | Average change | Largest change |
+  |---|---|---|---|---|
+  | Knee bend (°) | 62 | 62 | 0.13 | 1.6 |
+  | Elbow bend (°) | 42 | 42 | 0.20 | 3.1 |
+  | Arm angle (°) | 62 | 62 | 0.15 | 2.0 |
+  | Jump (shoulder-heights) | 62 | 62 | 0.003 | 0.007 |
+  | Flight time (s) | 62 | 62 | 0.003 | 0.03 |
+
+  Changes 1 to 3 on their own change nothing: on the six 720p clips every detection, shot
+  and form number is identical to `main`, on the laptop and on the server.
+- **1080p clips are shrunk by ffmpeg now, not by OpenCV**, so their pixels differ slightly
+  from before. On the one 1080p clip run both ways (`s3`), both got 11 of 11.
+
+### Tried and dropped
+
+| Idea | What was measured | Why dropped |
+|---|---|---|
+| Full frame at 512 in place of 640 | Server, six clips: 459 s against 480 s (30.9 against 29.5 frames a second), same 60 of 63. Laptop on 1 CPU: 48.4 s against 57.4 s. | Only 5% on the server, because 16-bit maths already made the detector cheap there. The ring is on the ball in 52% of frames against 77%, and two jump numbers are lost. |
+| 540p video with OpenCV's best-quality shrink (`INTER_AREA`) | 60.6 s against 60.6 s | The shrink cost as much as the smaller encode saved. The plain `INTER_LINEAR` shrink is the one kept. |
+| 16-bit maths on the old code only | Server, `longvid.mov`: 67.0 s against 76.8 s | Kept, but together with the rest. |
+
+### Still on the table
+
+- **A server with 2 real cores.** The laptop does `longvid.mov` at 34 frames a second on
+  2 CPUs against 20 on 1, with the round 2 code. About $13 to $17 more a month. Not
+  chosen for this round.
+- **60 fps uploads cost double.** Everything counts frames. Capping at 30 a second is a
+  small change, but it needs a real 60 fps clip to test with.
+- **Shots first, video later.** Drawing and encoding the video could wait until the shots
+  and form numbers are on the page.

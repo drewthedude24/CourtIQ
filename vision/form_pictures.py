@@ -71,22 +71,14 @@ def picture(image, frame, name, arm):
     return cv.resize(crop, (round(crop.shape[1] * HEIGHT / crop.shape[0]), HEIGHT), interpolation=cv.INTER_AREA)
 
 
-def save_pictures(input_path, inference_size, shot_events, pose_frames, folder):
-    """One picture per measured number of each shot, saved as <folder>/<shot number>_<number>.jpg.
-    pose_frames are the frames the form was measured on, with their joints and frame index."""
+def save_pictures(shot_number, form, pose_frames, images, folder):
+    """One picture per measured number of one shot, saved as <folder>/<shot number>_<number>.jpg.
+    pose_frames are the frames the form was measured on, with their joints and frame index.
+    images holds the picture of every frame a number was read on, by frame index."""
     by_time = {frame["t"]: frame for frame in pose_frames}
     folder.mkdir(exist_ok=True)
-    cap = cv.VideoCapture(input_path)
-    for shot_number, event in enumerate(shot_events, start=1):
-        form = event.get("form", {})
-        for name, t in form.get("seen_at", {}).items():
-            frame = by_time[t]
-            cap.set(cv.CAP_PROP_POS_FRAMES, frame["index"])
-            found, image = cap.read()
-            if not found:
-                continue
-            image = cv.resize(image, inference_size, interpolation=cv.INTER_AREA)
-            drawn = picture(image, frame, name, form["arm"])
-            if drawn is not None:
-                cv.imwrite(str(folder / f"{shot_number}_{name}.jpg"), drawn, [cv.IMWRITE_JPEG_QUALITY, 85])
-    cap.release()
+    for name, t in form.get("seen_at", {}).items():
+        frame = by_time[t]
+        drawn = picture(images[frame["index"]], frame, name, form["arm"])
+        if drawn is not None:
+            cv.imwrite(str(folder / f"{shot_number}_{name}.jpg"), drawn, [cv.IMWRITE_JPEG_QUALITY, 85])
