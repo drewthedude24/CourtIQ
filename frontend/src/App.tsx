@@ -4,13 +4,15 @@ import SessionsTable from "./SessionsTable";
 import StatsPanel from "./StatsPanel";
 import { formatPct } from "./format";
 import type { FormTrendRow, Session, SessionStatus, SessionSummary, Stats } from "./types";
+import { uploadVideo } from "./upload";
 import Viewer from "./Viewer";
 
 const PENDING_STATUSES = new Set<SessionStatus>(["QUEUED", "PROCESSING"]);
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [uploading, setUploading] = useState(false);
+  // The file being sent, and how many of its bytes have gone out. null when nothing is uploading.
+  const [upload, setUpload] = useState<{ name: string; sent: number; total: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const [history, setHistory] = useState<SessionSummary[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -46,7 +48,7 @@ export default function App() {
         setSession(updatedSession);
         setFailed(updatedSession.status === "FAILED");
         if (PENDING_STATUSES.has(updatedSession.status)) {
-          timer = window.setTimeout(refreshSession, 2000);
+          timer = window.setTimeout(refreshSession, 1000);
         }
       } catch {
         if (!cancelled) setFailed(true);
@@ -65,24 +67,16 @@ export default function App() {
     event.target.value = "";
     if (!file) return;
 
-    setUploading(true);
+    setUpload({ name: file.name, sent: 0, total: file.size });
     setFailed(false);
     setSession(null);
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const response = await fetch("/api/sessions", {
-        method: "POST",
-        body: formData,
-      });
-      if (!response.ok) throw new Error("Upload failed");
-      setSession(await response.json());
+      setSession(await uploadVideo(file, (sent, total) => setUpload({ name: file.name, sent, total })));
     } catch {
       setFailed(true);
     } finally {
-      setUploading(false);
+      setUpload(null);
     }
   }
 
@@ -116,38 +110,56 @@ export default function App() {
     }
   }
 
-  const working = uploading || (session !== null && PENDING_STATUSES.has(session.status));
+  const working = upload !== null || (session !== null && PENDING_STATUSES.has(session.status));
+
+  // The upload button. The real file input is hidden and the label opens it.
+  const uploadButton = (text: string) => (
+    <label className={working ? "button disabled" : "button"}>
+      {text}
+      <input
+        type="file"
+        accept="video/mp4,video/quicktime,.mov,.mp4,.m4v"
+        onChange={selectVideo}
+        disabled={working}
+      />
+    </label>
+  );
 
   return (
     <>
       <header>
-        <div>
-          <h1>CourtIQ</h1>
-          <p className="detail">Upload a shooting clip. See every make and miss, and how your form held up.</p>
-        </div>
-        <label className={working ? "button disabled" : "button"}>
-          Upload video
-          <input
-            type="file"
-            accept="video/mp4,video/quicktime,.mov,.mp4,.m4v"
-            onChange={selectVideo}
-            disabled={working}
-          />
-        </label>
+        <a className="brand" href="/" aria-label="CourtIQ, home">
+          <Mark />
+          <h1>Court<b>IQ</b></h1>
+        </a>
+        {history.length > 0 && (
+          <nav aria-label="Sections">
+            <a href="#sessions">Sessions</a>
+            <a href="#months">By month</a>
+            <a href="#trend">Form over time</a>
+          </nav>
+        )}
+        {uploadButton("Upload video")}
       </header>
 
       <main>
-        {/* Everything uploaded so far, in four numbers. */}
-        {stats && history.length > 0 && (
-          <dl className="totals">
-            <div><dt>Sessions</dt><dd>{history.length}</dd></div>
-            <div><dt>Shots</dt><dd>{stats.overall.makes + stats.overall.misses}</dd></div>
-            <div><dt>Made</dt><dd>{stats.overall.makes}</dd></div>
-            <div><dt>Shooting</dt><dd>{formatPct(stats.overall.shooting_pct)}</dd></div>
-          </dl>
-        )}
-        <Viewer session={session} uploading={uploading} failed={failed} />
+        <Viewer
+          session={session}
+          upload={upload}
+          failed={failed}
+          hasHistory={history.length > 0}
+          uploadButton={uploadButton("Choose a video")}
+        />
         <div className="tables">
+          {/* Everything uploaded so far, in one line. */}
+          {stats && history.length > 0 && (
+            <p className="totals">
+              <span><b>{history.length}</b> {history.length === 1 ? "session" : "sessions"}</span>
+              <span><b>{stats.overall.makes + stats.overall.misses}</b> shots</span>
+              <span><b>{stats.overall.makes}</b> made</span>
+              <span><b>{formatPct(stats.overall.shooting_pct)}</b> shooting</span>
+            </p>
+          )}
           <SessionsTable
             sessions={history}
             selectedId={session?.id}
@@ -159,6 +171,27 @@ export default function App() {
           <FormTrend rows={formTrend} />
         </div>
       </main>
+
+      {/* The photo's licence (CC BY-SA 4.0) asks for the photographer's name, a link, and a note
+          that the picture was changed. */}
+      <footer>
+        Photo of Breanna Stewart by{" "}
+        <a href="https://commons.wikimedia.org/wiki/File:260927_Lynx_Liberty_JohnMc90_(55555504475).jpg">John McClellan</a>,{" "}
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, cropped.
+      </footer>
     </>
+  );
+}
+
+// The CourtIQ mark: a basketball inside tracking brackets, and the dotted path the tracker
+// draws behind it.
+function Mark() {
+  return (
+    <svg className="logo" viewBox="0 0 46 34" aria-hidden="true">
+      <path className="logo-brackets" d="M1 12 V7 H6 M24 7 H29 V12 M29 28 V33 H24 M6 33 H1 V28" />
+      <circle className="logo-ball" cx="15" cy="20" r="10" />
+      <path className="logo-seam" d="M5 20 H25 M15 10 V30 M8 13 Q15 20 8 27 M22 13 Q15 20 22 27" />
+      <path className="logo-path" d="M30 9 Q36 3 43 2" />
+    </svg>
   );
 }

@@ -1,11 +1,11 @@
-import { formatPct } from "./format";
+import { formatMonth, formatPct } from "./format";
 import type { Stats } from "./types";
 
 export default function StatsPanel({ stats }: { stats: Stats | null }) {
   if (!stats) return null;
 
   return (
-    <section>
+    <section id="months">
       <h2>Shooting by month</h2>
       <p className="detail caption">Makes and misses across all sessions.</p>
       {stats.months.length === 0 ? (
@@ -23,7 +23,7 @@ export default function StatsPanel({ stats }: { stats: Stats | null }) {
           <tbody>
             {stats.months.map((row) => (
               <tr key={row.month}>
-                <td>{row.month.slice(0, 7)}</td>
+                <td>{formatMonth(row.month)}</td>
                 <td className="num">{row.makes}</td>
                 <td className="num">{row.misses}</td>
                 <td className="num">{formatPct(row.shooting_pct)}</td>
