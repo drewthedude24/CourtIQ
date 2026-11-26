@@ -9,7 +9,7 @@ import cv2 as cv
 import torch
 
 from yolo_detector import YoloDetector
-from predictive_ball_tracker import PredictiveBallTracker
+from ball_path import LAG, BallPath
 from rim_shot_detector import WATCH_S, RimShotDetector
 from pose_model import PoseModel
 from shot_form import FORM_WINDOW_S, IN_THE_AIR_S, ball_and_hoop, ball_in_hand, measure
@@ -26,8 +26,8 @@ OFFLINE_VIDEO_SIZE = (960, 540)
 OFFLINE_YOLO_IMAGE_SIZE = 640
 OFFLINE_FOCUS_IMAGE_SIZE = 448
 OFFLINE_CONFIDENCE_THRESHOLD = 0.12
-# While no shot is on its way, the detector only looks at every 4th frame. The ball tracker
-# predicts the ball's position on the frames in between.
+# While no shot is on its way, the detector only looks at every 4th frame. ball_path.py
+# works out where the ball was on the frames in between.
 DETECT_EVERY = 4
 OFFLINE_VIDEO_CODEC = "h264"
 
@@ -36,39 +36,6 @@ yolo_detector = YoloDetector(
     image_size=OFFLINE_YOLO_IMAGE_SIZE,
     focus_image_size=OFFLINE_FOCUS_IMAGE_SIZE,
 )
-
-# because my history of the ball tracking is deque structure, needs to be converted to list first
-def serialize(tracked_ball):
-    """Convert tracker data into values that JSON can write to disk."""
-    center = tracked_ball["center"]
-    velocity_x, velocity_y = tracked_ball["velocity"]
-
-    serialized = {
-        "detected": tracked_ball["detected"],
-        "center": list(center) if center is not None else None,
-        "velocity": [velocity_x, velocity_y],
-        "history": [list(point) for point in tracked_ball["history"]],
-        "missing_frames": tracked_ball["missing_frames"],
-    }
-    for key in (
-        "tracking_status",
-        "predicted_center",
-        "measurement_center",
-        "selected_confidence",
-        "selected_source",
-        "candidate_count",
-        "association_distance",
-        "gate_distance",
-        "prediction_uncertainty",
-        "kalman_acceleration",
-    ):
-        value = tracked_ball.get(key)
-        if (
-            key.endswith("center") or key == "kalman_acceleration"
-        ) and value is not None:
-            value = list(value)
-        serialized[key] = value
-    return serialized
 
 # write each record into jsonl file for future sql implementation
 def write_json_line(json_file, frame_record):
@@ -224,7 +191,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
     writer = start_video_writer(output_path / "annotated.mp4", fps, *video_size)
 
     # Each clip needs fresh state so a previous clip cannot affect the next one.
-    ball_tracker = PredictiveBallTracker()
+    ball_path = BallPath(fps)
     shot_detector = RimShotDetector()
     frame_index = 0
     shot_events = []
@@ -260,7 +227,6 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 "detect_every": DETECT_EVERY,
                 "confidence_threshold": OFFLINE_CONFIDENCE_THRESHOLD,
                 "video_codec": OFFLINE_VIDEO_CODEC,
-                "tracker": "constant-velocity Kalman filter with acceleration process noise",
             },
             indent=2,
         ),
@@ -293,6 +259,29 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
         lap(ahead_timings, "ball_detector", t)
         return yuv, frame, full_detections
 
+    # Frames wait here for LAG frames before they are drawn on, so the ball's place on a
+    # frame the detector skipped can be worked out from the detections on both sides of it.
+    waiting = deque()
+
+    def finish_frame(output_frame, record):
+        """Draw on a frame, send it to the video and save its line of frames.jsonl."""
+        t = time.perf_counter()
+        shot_result = record["shot_result"]
+        ball = ball_path.ball(record["frame_index"])
+        rim = shot_result["rim_center"]
+        # A shot is in the air while the ball is above the rim line, and until its result is in.
+        in_flight = shot_result["status"] == "TRACKING" or bool(ball and rim and ball[1] < rim[1])
+        overlay.draw(
+            output_frame, ball, ball_path.trail(record["frame_index"], ball, in_flight),
+            shot_result, record["score"]["makes"], record["score"]["misses"],
+            scale=video_size[0] / inference_size[0],
+        )
+        t = lap(timings, "drawing", t)
+        writer.stdin.write(output_frame.data)
+        t = lap(timings, "video_write", t)
+        write_json_line(json_file, {**record, "ball": ball and [round(value, 1) for value in ball]})
+        lap(timings, "json_write", t)
+
     reader = ThreadPoolExecutor(max_workers=1)
     next_frames = reader.submit(read_frame, True)
 
@@ -321,8 +310,8 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 timestamp_s = frame_index / fps
                 t = time.perf_counter()
 
-                # On a frame the detector skipped there are no detections: the tracker predicts
-                # the ball and the shot detector only keeps time.
+                # On a frame the detector skipped there are no detections: the shot detector
+                # only keeps time, and ball_path.py fills in the ball later.
                 detected = full_detections is not None
                 detections, yolo_fps = [], 0
                 if detected:
@@ -332,7 +321,8 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                         full_detections=full_detections,
                     )
                 t = lap(timings, "ball_detector", t)
-                tracked_ball = ball_tracker.update(detections)
+                if detected:
+                    ball_path.add(frame_index, detections)
                 shot_result = shot_detector.update(detections, timestamp_s)
                 frame_notes.append({
                     "t": timestamp_s, **ball_and_hoop(detections),
@@ -347,35 +337,22 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 t = lap(timings, "tracking_and_shots", t)
 
                 output_frame = cv.resize(frame, video_size, interpolation=cv.INTER_LINEAR)
-                overlay.draw(
-                    output_frame, tracked_ball, shot_result, make_count, miss_count,
-                    scale=video_size[0] / inference_size[0],
-                )
-                t = lap(timings, "drawing", t)
-                writer.stdin.write(output_frame.data)
-                t = lap(timings, "video_write", t)
-
-                write_json_line(
-                    json_file,
-                    {
-                        "frame_index": frame_index,
-                        "timestamp_s": timestamp_s,
-                        "yolo_fps": yolo_fps,
-                        "detector_ran": detected,
-                        "detections": detections,
-                        "ball": serialize(tracked_ball),
-                        "shot_result": shot_result,
-                        "score": {
-                            "makes": make_count,
-                            "misses": miss_count,
-                        },
-                    },
-                )
+                lap(timings, "drawing", t)
+                waiting.append((output_frame, {
+                    "frame_index": frame_index,
+                    "timestamp_s": timestamp_s,
+                    "yolo_fps": yolo_fps,
+                    "detector_ran": detected,
+                    "detections": detections,
+                    "shot_result": shot_result,
+                    "score": {"makes": make_count, "misses": miss_count},
+                }))
+                if len(waiting) > LAG:
+                    finish_frame(*waiting.popleft())
 
                 if shot_result["event"]:
                     shot_events.append(shot_event(shot_result))
                     form_pass.add(shot_events[-1], recent_frames)
-                lap(timings, "json_write", t)
 
                 frame_index += 1
                 on_progress("detect", frame_index, frame_count)
@@ -387,6 +364,8 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 miss_count += last_result["result"] == "MISS"
                 shot_events.append(shot_event(last_result))
                 form_pass.add(shot_events[-1], recent_frames)
+            while waiting:
+                finish_frame(*waiting.popleft())
     finally:
         # Closing its input tells ffmpeg there are no more frames. Then wait for it to finish the file.
         t = time.perf_counter()
