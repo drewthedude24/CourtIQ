@@ -8,7 +8,7 @@ earlier version of the shot logic and the scripts that went with it.
   `vision/rim_shot_detector.py` (see `docs/detector-results.md` for why).
 - `pose_detector.py`: the YOLO pose model wrapper. Not run anymore. It needs the `lap`
   package, which is no longer in `requirements.txt`.
-- `ball_tracker.py`: the first ball tracker, replaced by `vision/predictive_ball_tracker.py`.
+- `ball_tracker.py`: the first ball tracker, replaced by a Kalman-filter tracker, and that by `vision/ball_path.py`.
 - `main.py`, `camera.py`: the live webcam prototype.
 - `offline_run.py`, `clean_offline_runner.py`, `stitched_offline_runner.py`,
   `compare_missing_frames.py`: one-off scripts for running and comparing clips.
