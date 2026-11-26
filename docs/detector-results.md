@@ -9,12 +9,17 @@ One row is added each time the detector changes.
 | Rim-based shots | 63 of 63 (100%) | 57 of 63 (90%) | 0 | 57 of 63 (90%) | 530 s | Shots are found at the rim instead of at the release. Pose model no longer runs. |
 | Bounce and width rules | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | not timed | A ball that bounces up off the rim is a miss. A sliver of a ball under the rim does not count. Scored by replay, not a full run. |
 | Smaller YOLO images | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 440 s | Full frame 960 to 640, zoomed-in crops 640 to 448. Full Docker run with both changes. |
+| Speed changes | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 747 s on 2 CPUs (903 s before) | No detector change. One video encode instead of two, and the form pass and the full-frame detector run in their own threads. Every saved number is identical to the run before. See `docs/speed-plan.md`. |
 
 - **Found:** real shots the detector reported, within 2 seconds of the labeled time.
 - **Make/miss right:** found shots where the make or miss call matches the label.
 - **False detections:** shots the detector reported that did not happen.
 - **Fully correct:** shots that were found and called right, out of all real shots.
-- **Run time:** seconds the detector took for all 6 clips (472 seconds of video).
+- **Run time:** seconds the detector took for all 6 clips (472 seconds of video). The rows
+  down to "Smaller YOLO images" were run with all 15 laptop CPUs and before the form pass
+  existed. The "Speed changes" row is with the container pinned to 2 CPUs, like the server,
+  and includes the form pass. Its "before" run was made the same hour on the same 2 CPUs.
+  Before, the H.264 conversion came on top of this number. Now it is inside it.
 
 ## Setup
 
