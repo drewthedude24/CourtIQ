@@ -14,7 +14,7 @@ from pose_model import PoseModel
 from shot_form import FORM_WINDOW_S, ball_and_hoop, measure
 from form_pictures import save_pictures
 from video_writer import start_video_writer
-import debug_overlay
+import overlay
 
 
 OFFLINE_INFERENCE_SIZE = (1280, 720)
@@ -89,95 +89,6 @@ def get_inference_size(source_width, source_height):
     inference_height = max(2, int(round(source_height * scale / 2.0)) * 2)
     return inference_width, inference_height
 
-
-def scale_point(point, scale_x, scale_y):
-    if point is None:
-        return None
-    return int(round(point[0] * scale_x)), int(round(point[1] * scale_y))
-
-
-def scale_bbox(bbox, scale_x, scale_y):
-    x1, y1, x2, y2 = bbox
-    return (
-        int(round(x1 * scale_x)),
-        int(round(y1 * scale_y)),
-        int(round(x2 * scale_x)),
-        int(round(y2 * scale_y)),
-    )
-
-
-def scale_tracked_ball(tracked_ball, scale_x, scale_y):
-    """Copy tracker output into source-video coordinates for drawing only."""
-    scaled = dict(tracked_ball)
-    for key in ("center", "predicted_center", "measurement_center"):
-        scaled[key] = scale_point(tracked_ball.get(key), scale_x, scale_y)
-    scaled["history"] = [
-        scale_point(point, scale_x, scale_y) for point in tracked_ball["history"]
-    ]
-    velocity_x, velocity_y = tracked_ball["velocity"]
-    scaled["velocity"] = velocity_x * scale_x, velocity_y * scale_y
-    acceleration_x, acceleration_y = tracked_ball.get(
-        "kalman_acceleration",
-        (0.0, 0.0),
-    )
-    scaled["kalman_acceleration"] = (
-        acceleration_x * scale_x,
-        acceleration_y * scale_y,
-    )
-    uncertainty = tracked_ball.get("prediction_uncertainty")
-    if uncertainty is not None:
-        scaled["prediction_uncertainty"] = uncertainty * (
-            (scale_x + scale_y) / 2.0
-        )
-    return scaled
-
-
-def scale_shot_result(shot_result, scale_x, scale_y):
-    """Copy rim geometry into source-video coordinates for drawing only."""
-    scaled = dict(shot_result)
-    scaled["rim_center"] = scale_point(
-        shot_result.get("rim_center"),
-        scale_x,
-        scale_y,
-    )
-    scoring_window = shot_result.get("scoring_window")
-    if scoring_window is not None:
-        scaled["scoring_window"] = [
-            int(round(scoring_window[0] * scale_x)),
-            int(round(scoring_window[1] * scale_x)),
-        ]
-    hoop_bbox = shot_result.get("hoop_bbox")
-    if hoop_bbox is not None:
-        scaled["hoop_bbox"] = scale_bbox(hoop_bbox, scale_x, scale_y)
-    return scaled
-
-
-def draw_source_detections(frame, detections, focus_regions, scale_x, scale_y):
-    """Draw inference-space detections on the original-resolution frame."""
-    for region in focus_regions:
-        x1, y1, x2, y2 = scale_bbox(region, scale_x, scale_y)
-        cv.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
-
-    for detection in detections:
-        x1, y1, x2, y2 = scale_bbox(
-            detection["bbox"],
-            scale_x,
-            scale_y,
-        )
-        source = detection.get("source", "full")
-        color = (255, 0, 255) if source == "focus" else (255, 200, 0)
-        label = "basketball" if detection["class_id"] == 0 else "hoop"
-        cv.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-        cv.putText(
-            frame,
-            f"{source} {label} {detection['confidence']:.2f}",
-            (x1, max(25, y1 - 10)),
-            cv.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            color,
-            2,
-            cv.LINE_AA,
-        )
 
 class FormPass:
     """Measure the shooter's form on each shot, in a second thread, while the detector keeps going.
@@ -401,27 +312,10 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                         miss_count += 1
                 t = lap(timings, "tracking_and_shots", t)
 
-                scale_x = frame.shape[1] / inference_size[0]
-                scale_y = frame.shape[0] / inference_size[1]
                 output_frame = frame.copy()
-                draw_source_detections(
-                    output_frame,
-                    detections,
-                    yolo_detector.last_focus_regions,
-                    scale_x,
-                    scale_y,
-                )
-                debug_overlay.draw_debug_overlay(
-                    output_frame,
-                    scale_tracked_ball(tracked_ball, scale_x, scale_y),
-                    shot_result["status"],
-                    timestamp_s,
-                    scale_shot_result(shot_result, scale_x, scale_y),
-                )
-                debug_overlay.draw_shot_counter(
-                    output_frame,
-                    make_count,
-                    miss_count,
+                overlay.draw(
+                    output_frame, detections, tracked_ball, shot_result, make_count, miss_count,
+                    scale=frame.shape[1] / inference_size[0],
                 )
                 t = lap(timings, "drawing", t)
                 writer.stdin.write(output_frame.data)
