@@ -280,7 +280,7 @@ footer {
   height: 460px;
   border-right: 2px solid var(--paint);
   object-fit: cover;
-  object-position: 50% 15%;
+  object-position: 50% 30%;
 }
 
 .welcome h2 {

@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import CourtScene from "./CourtScene";
-import curryShooting from "./curry-shooting.jpg";
+import shooter from "./shooter.jpg";
 import FormPictures from "./FormPictures";
 import FormTable from "./FormTable";
 import JobProgress from "./JobProgress";
@@ -72,7 +72,7 @@ export default function Viewer({ session, upload, failed, hasHistory, uploadButt
   if (!session) {
     return (
       <section className="panel welcome">
-        <img src={curryShooting} alt="Stephen Curry shooting, seen from behind" />
+        <img src={shooter} alt="A player in mid-air on a jump shot, seen from behind, with the hoop ahead" />
         <div>
           <h2>See your makes, your misses, and how your form held up.</h2>
           <ol className="steps">

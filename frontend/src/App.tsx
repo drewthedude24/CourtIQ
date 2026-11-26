@@ -172,12 +172,12 @@ export default function App() {
         </div>
       </main>
 
-      {/* The photo's licence (CC BY 2.0) asks for the photographer's name, a link, and a note
+      {/* The photo's licence (CC BY-SA 4.0) asks for the photographer's name, a link, and a note
           that the picture was changed. */}
       <footer>
-        Photo of Stephen Curry by{" "}
-        <a href="https://commons.wikimedia.org/wiki/File:Raptors_at_Warriors,_2013-03-04_P1000260_(8531320125).jpg">Matthew Addie</a>,{" "}
-        <a href="https://creativecommons.org/licenses/by/2.0/">CC BY 2.0</a>, cropped.
+        Photo of Breanna Stewart by{" "}
+        <a href="https://commons.wikimedia.org/wiki/File:260927_Lynx_Liberty_JohnMc90_(55555504475).jpg">John McClellan</a>,{" "}
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, cropped.
       </footer>
     </>
   );
