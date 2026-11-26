@@ -16,9 +16,12 @@ COURT, ASPHALT, PAINT, MUTED = (19, 49, 85), (34, 39, 44), (242, 240, 234), (184
 BALL, MAKE, MISS = (248, 132, 45), (83, 222, 115), (255, 103, 101)
 # How many of the ball's last positions are dotted behind it (two thirds of a second at 30 fps).
 TRAIL = 20
+# The detector skips frames (DETECT_EVERY in offline_runner.py). The ring stays on the ball's
+# predicted position for this many frames without a detection, so it does not blink.
+RING_COAST = 4
 
 
-def draw(frame, detections, tracked_ball, shot_result, makes, misses, scale):
+def draw(frame, tracked_ball, shot_result, makes, misses, scale):
     """Draw on `frame`. `scale` turns the detector's coordinates into this frame's pixels."""
     def at(x, y):
         return round(x * scale), round(y * scale)
@@ -43,13 +46,12 @@ def draw(frame, detections, tracked_ball, shot_result, makes, misses, scale):
     for age, point in enumerate(reversed(trail)):
         painted(at(*point), round((4 - age / 6) * unit), -1)
 
-    # A ring on the ball the tracker is following: the ball detection closest to its position.
-    balls = [d for d in detections if d["class_id"] == 0]
-    if tracked_ball["tracking_status"] == "DETECTED" and balls:
-        cx, cy = tracked_ball["center"]
-        x1, y1, x2, y2 = min(balls, key=lambda d: (d["center"][0] - cx) ** 2 + (d["center"][1] - cy) ** 2)["bbox"]
-        radius = round(max(x2 - x1, y2 - y1) / 2 * scale + 5 * unit)
-        painted(at((x1 + x2) / 2, (y1 + y2) / 2), radius, round(2 * unit))
+    # A ring on the ball the tracker is following: on the detection when there is one, and on
+    # the tracker's prediction for a few frames when there is not.
+    centre = tracked_ball["measurement_center"] or tracked_ball["center"]
+    if centre and tracked_ball["missing_frames"] < RING_COAST:
+        radius = round(tracked_ball["width"] / 2 * scale + 5 * unit)
+        painted(at(*centre), radius, round(2 * unit))
 
     # The rim line: orange, or green or red for a few seconds after a shot.
     if shot_result["scoring_window"]:

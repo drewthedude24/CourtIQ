@@ -213,3 +213,150 @@ with the 171 + 40 = 211 s measured before.
 
   Free on GitHub (10 GB limit, entries unused for 7 days are deleted). This YAML has not
   been run.
+
+## Round 2: about twice as fast, with results allowed to change
+
+Measured 2026-11-25. The goal changed for this round: speed comes first, and results no
+longer have to stay identical. The floor is 90% of the labelled shots fully correct.
+
+### Result in one table
+
+| | Before (main) | After | Change |
+|---|---|---|---|
+| Six eval clips, 2 CPUs | 757 s | 418 s | 45% less time (1.8x faster) |
+| `longvid.mov`, 2 CPUs | 80 s | 42 s | 47% less time (1.9x faster) |
+| `longvid.mov`, 1 CPU | 136 s | 71 s | 48% less time (1.9x faster) |
+| CPU-seconds, six clips | 1,422 | 774 | |
+| Shots fully correct, six clips | 61 of 63 (97%) | 60 of 63 (95%) | one shot lost |
+| Shots fully correct, `longvid.mov` | 6 of 6 | 5 of 6 | one miss called a make |
+| False shots | 0 | 0 | |
+| Frames the detector looks at | 100% | 40% | |
+| Frames the pose model looks at, six clips | 4,709 | 3,431 | |
+| Frames with the ring on the ball, six clips | 81% | 76% | |
+| Peak memory, `longvid.mov` | 922 MB | 1,107 MB | |
+| Annotated video, `longvid.mov` | 7.6 MB | 5.8 MB | |
+
+- Machine: the same stand-in as above. Docker on an Apple M5 Pro laptop, container pinned
+  with `--cpuset-cpus`. **Not measured on the EC2 server yet.**
+- "Before" is `main` after the first speed round and the new overlay, timed the same hour.
+- `longvid.mov` on 2 CPUs was run twice after the changes: 42.2 and 42.0 s. Everything else
+  is one run.
+- CPU-seconds is the work added up over every thread and both ffmpeg processes. On the
+  server's single real core that number matters more than the 2 CPU time.
+- Peak memory here includes files the system keeps in memory, so it reads higher than the
+  877 and 969 MB at the top of this page.
+
+### What was built
+
+| # | Change | Where |
+|---|---|---|
+| 1 | **Frames are read through ffmpeg.** OpenCV took 10.4 ms a frame on iPhone clips, 9 ms of it turning the 10-bit HDR picture into a normal one. ffmpeg hands over plain 8-bit YUV and OpenCV turns that into BGR: 2.8 ms a frame. The picture comes out a little darker, because OpenCV was also brightening the HDR picture. | `vision/video_reader.py` |
+| 2 | **The detector looks at every 4th frame, and at every frame while a shot is on its way.** "On its way" is the rule the rim crop already used: the ball was seen high above the rim in the last second, or a shot is being watched. On the skipped frames the Kalman tracker predicts where the ball is. | `DETECT_EVERY` and `read_frame` in `vision/offline_runner.py` |
+| 3 | **Only one zoomed-in crop is left, the one on the rim.** The crop that followed the ball is gone. With it the score was the same, the form numbers were within noise, and the ring was on the ball in 3% more frames. | `vision/offline_runner.py` |
+| 4 | **A flat box is not a ball.** With frames skipped, the model twice called a flat strip at the edge of a crop a ball (once on the rim, once on a roof beside it), and at rim height that started a shot early. A box under half as tall as it is wide is now ignored. | `MIN_BALL_HEIGHT` in `vision/rim_shot_detector.py` |
+| 5 | **The form pass fills in the frames the detector skipped, and stops once the ball is in the air.** The release is found from the ball's position on every frame, so the form pass runs the ball detector on its own frames where the main loop did not. Pose stops 0.35 s after the ball leaves the hands, because no number is read later than that. | `FormPass` in `vision/offline_runner.py`, `ball_in_hand` in `vision/shot_form.py` |
+| 6 | **The ring rides the tracker's prediction over skipped frames**, so it does not blink. | `vision/overlay.py` |
+
+### What it costs
+
+- **One labelled shot is lost.** `s4.mov` at 8.8 s is an airball that leaves the picture at
+  rim height. The old code only caught it from a 13-pixel slice of ball that the ball crop
+  found. Almost every change tried here lost it, on its own.
+- **One `longvid.mov` miss is called a make** (10.6 s). The ball drops just beside the net.
+  The old code saw it below the rim once, the new code twice, and two sightings is a make.
+- **The video looks different.** It is a little darker and less washed out, and the ring is
+  on the ball in 76% of frames against 81%. While the shot is in the air it is on 75% of
+  frames. The loss is mostly while the shooter is holding the ball.
+- **The form numbers move a little.** Same shots, compared one by one with `main`:
+
+  | Number | Shots measured before | After | Average change | Largest change |
+  |---|---|---|---|---|
+  | Knee bend (°) | 62 | 62 | 1.0 | 3.1 |
+  | Elbow bend (°) | 43 | 42 | 2.3 | 10.6 |
+  | Arm angle (°) | 62 | 62 | 1.2 | 5.2 |
+  | Jump (shoulder-heights) | 61 | 62 | 0.007 | 0.03 |
+  | Flight time (s) | 62 | 62 | 0.009 | 0.10 |
+
+  The averages over all shots barely move (knee 98.7 to 99.4, elbow 63.1 to 62.8, arm 46.9
+  to 47.1). Stopping pose early changes nothing by itself: on saved pose data 0 of 63 shots
+  changed. The rest is the pose model and the ball detector seeing a slightly different picture.
+
+### Every option that was measured
+
+Shots only (no pose, no video), six clips, each run once. "Runs per frame" is how many times
+the YOLO model runs per video frame, which is what the detector's time follows.
+
+| Option | Fully correct | Runs per frame | Note |
+|---|---|---|---|
+| Start (first speed round) | 61 of 63 | 1.54 | |
+| ffmpeg frame reader | 60 | 1.48 | loses the `s4` airball |
+| Detector every 2nd frame | 60 | 0.96 | a flat box started one shot early |
+| Detector every 3rd frame | 60 | 0.76 | same, on another shot |
+| Detector every 4th frame | 61 | 0.66 | |
+| No ball crop | 60 | 1.12 | loses the `s4` airball |
+| Full frame at 512 | 61 | 1.54 | each full frame takes 11.6 ms against 18.4 |
+| Full frame at 416 | 51 | 1.56 | misses 9 shots |
+| Crops at 384 | 60 | 1.51 | |
+| Crops at 320 | 60 | 1.49 | |
+
+With the flat-box rule added:
+
+| Option | Fully correct | Runs per frame | Ring on the ball |
+|---|---|---|---|
+| Every 4th frame, full 512, crops 320 | 61 | 0.64 | 56% |
+| Every 8th frame, full 512, crops 320 | 61 | 0.48 | 33% |
+| Every 4th, rim crop only while a shot arrives | 60 | 0.50 | 56% |
+| The same with no ball crop | 60 | 0.43 | 50% |
+| Every 8th, rim crop only while a shot arrives | 60 | 0.33 | |
+| Every 4th, rim crop only while a shot arrives, ffmpeg reader | 60 | 0.50 | 58% |
+| The same, picture brightened back with a lookup table | 60 | 0.51 | |
+| Every 4th, full 640, crop 320, no ball crop | 60 | 0.52 | 76% |
+| The same, plus look again right after losing the ball | 60 | 0.60 | 79% |
+| Look-again rule, full 576 | 61 | 0.63 | 67% |
+| Every 2nd, full 640 | 60 | 0.72 | 81% |
+| **Every 4th, full 640, rim crop 448, no ball crop (kept)** | **60** | | **76%** |
+
+The score moves by one shot from run to run of nearly the same settings, so 60 against 61
+is inside the noise of a 63-shot test. The ring is what told the options apart: a 512 full
+frame loses the ball about a third of the time when the shooter is holding it.
+
+Whole pipeline on `longvid.mov`, 2 CPUs, one run each unless noted:
+
+| Option | Time | CPU-seconds | Shots right |
+|---|---|---|---|
+| `main` | 80 s | 151 | 6 of 6 |
+| Every 4th, full 512, crops 320, only the rim crop while a shot arrives, form window 2.0 s | 34 s | 61 | 6 of 6 |
+| The same, every 8th | 32 s | 52 | 6 of 6 |
+| Every 4th, full 512, crop 320, form window back to 2.5 s | 36 s (two runs) | 65 | 6 of 6 |
+| Every 4th, full 640, crop 320 | 40 s (two runs) | 74 | 5 of 6 |
+| **Every 4th, full 640, crop 448 (kept)** | **42 s (two runs)** | **77** | **5 of 6** |
+
+### Tried and dropped
+
+| Idea | What was measured | Why dropped |
+|---|---|---|
+| Full frame at 512 | 36 s against 42 s on `longvid.mov`, same six-clip score | The ring is on the ball in 52% of frames against 76%. This is the one to flip if speed matters more than the ring. |
+| Pose on every other frame | Knee moves 3.5° on average on saved pose data | More than half its shot-to-shot spread. |
+| Form window 2.0 s in place of 2.5 s | Two knee numbers jumped by 11° and 25° | The pose model's first frames of each shot are unsteady, and at 2.0 s they fall inside the knee search. |
+| Brightening the ffmpeg picture back to OpenCV's look | Same score with and without | No gain for the extra code. |
+| Detector every 8th frame | 2 s faster on `longvid.mov` | The ring is on the ball in a third of the frames. |
+| Looking again right after the tracker loses the ball | Ring 79% against 76% for 15% more model runs | Not worth the extra rule. |
+| Faster x264 presets, or handing ffmpeg YUV in place of BGR | About 1 ms a frame at best | Bigger files for almost nothing. |
+| A lighter pose model | Not run again | Already measured in `docs/form-results.md`: it loses the elbow. |
+
+### Still on the table
+
+- **Measure on EC2.** Same as before: upload `longvid.mov` after the deploy and read
+  `timings.json`. The server's chip is different, so the gain there may be larger or smaller
+  than 1.9x.
+- **16-bit floats on the server** (section 2 above). The reason it was turned off was one
+  flipped `longvid.mov` shot. With the new floor of 90% it may be allowed back, but it needs
+  one six-clip eval on the server first.
+- **60 fps uploads cost double.** Everything counts frames, so a 60 fps clip runs pose and
+  the detector twice as often per second of video. Capping both at 30 a second is a small
+  change that has not been tried.
+- **The video is still decoded twice** (once for the detector, once for the form pass):
+  an estimated 6 of the 77 CPU-seconds on `longvid.mov`. Keeping recent frames in memory
+  would remove it for 150 MB or more.
+- **The form pictures read the video a third time with OpenCV**: 2.7 s on `longvid.mov`, and
+  they keep OpenCV's brighter look.

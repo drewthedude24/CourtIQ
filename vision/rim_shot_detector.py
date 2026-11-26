@@ -30,6 +30,10 @@ MAKE_SIGHTINGS = 2
 # A whole ball is about half a hoop-width wide. A narrower box is only a slice of a ball, such as
 # one leaving the edge of the picture, so it doesn't count as the ball below the rim.
 MIN_BALL_WIDTH = 0.3
+# A ball's box is about as tall as it is wide. One under half as tall is something else. At the edge
+# of the zoomed-in crop the model called flat strips of the rim and of a roof a ball, and at rim
+# height that started shots early.
+MIN_BALL_HEIGHT = 0.5
 # A ball rolling on the rim has its centre about one ball radius (0.25 hoop-heights) above the rim line.
 # Higher than this after reaching the rim, it bounced. The camera can't tell if a bounced ball then
 # drops through the net or behind it, and in the test clips those drops were all misses.
@@ -38,7 +42,8 @@ BOUNCE_ABOVE_RIM = 0.3
 COOLDOWN_S = 2.0
 # How long MAKE or MISS stays on the video.
 RESULT_DISPLAY_S = 4.0
-# The rim line is steadied with the median of this many hoop boxes (about a second of video).
+# The rim line is steadied with the median of this many hoop boxes: a second of video while a shot
+# is arriving, and up to four seconds while the detector is skipping frames.
 HOOP_HISTORY = 30
 REASONS = {
     "MAKE": "ball seen below the rim",
@@ -117,6 +122,8 @@ class RimShotDetector:
                 continue
             ball_x, ball_y = detection["center"]
             ball_left, ball_top, ball_right, ball_bottom = detection["bbox"]
+            if ball_bottom - ball_top < MIN_BALL_HEIGHT * (ball_right - ball_left):
+                continue
             side = abs(ball_x - centre_x) / width
 
             # Checked before a shot can start, so the frame the ball arrives on never counts as a bounce.

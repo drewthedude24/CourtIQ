@@ -10,6 +10,7 @@ One row is added each time the detector changes.
 | Bounce and width rules | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | not timed | A ball that bounces up off the rim is a miss. A sliver of a ball under the rim does not count. Scored by replay, not a full run. |
 | Smaller YOLO images | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 440 s | Full frame 960 to 640, zoomed-in crops 640 to 448. Full Docker run with both changes. |
 | Speed changes | 63 of 63 (100%) | 61 of 63 (97%) | 0 | 61 of 63 (97%) | 747 s on 2 CPUs (903 s before) | No detector change. One video encode instead of two, and the form pass and the full-frame detector run in their own threads. Every saved number is identical to the run before. See `docs/speed-plan.md`. |
+| Frame skipping | 62 of 63 (98%) | 60 of 62 (97%) | 0 | 60 of 63 (95%) | 418 s on 2 CPUs (757 s before) | The detector looks at every 4th frame, and at every frame while a shot is on its way. Frames are read through ffmpeg, the ball crop is gone and a flat box no longer counts as a ball. The lost shot is an airball in `s4.mov` that leaves the picture at rim height. See `docs/speed-plan.md`, round 2. |
 
 - **Found:** real shots the detector reported, within 2 seconds of the labeled time.
 - **Make/miss right:** found shots where the make or miss call matches the label.
