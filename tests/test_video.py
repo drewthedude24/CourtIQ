@@ -37,8 +37,8 @@ def test_video_reader_gives_every_frame_as_a_bgr_picture(tmp_path):
 
     reader = VideoReader(str(path), width=64, height=48)
     frames = []
-    while reader.grab():
-        frames.append(reader.retrieve())
+    while (yuv := reader.read()) is not None:
+        frames.append(reader.picture(yuv))
     reader.release()
 
     assert len(frames) == 10

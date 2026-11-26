@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import torch
 
 from yolo_detector import YoloDetector
 from predictive_ball_tracker import PredictiveBallTracker
-from rim_shot_detector import RimShotDetector
+from rim_shot_detector import WATCH_S, RimShotDetector
 from pose_model import PoseModel
 from shot_form import FORM_WINDOW_S, IN_THE_AIR_S, ball_and_hoop, ball_in_hand, measure
 from form_pictures import save_pictures
@@ -97,9 +98,10 @@ class FormPass:
     """Measure the shooter's form on each shot, in a second thread, while the detector keeps going.
 
     A shot is only known once the ball reaches the rim, about a second after the release. So the
-    video is opened a second time and the pose model runs on just the frames before each shot.
-    The one thread takes the shots in turn, so the pose model sees the same frames in the same
-    order as if it ran after the detector (it follows the person from frame to frame).
+    main loop keeps the last few seconds of frames in memory, and when a shot is found it hands
+    over the frames before it. The pose model runs on just those.
+    The one thread takes the shots in turn, so the pose model sees the frames in time order
+    (it follows the person from frame to frame).
     frame_notes holds each frame's time, balls and hoop. The detector adds to it as it goes.
 
     The form numbers need the ball on every frame up to the release, so this pass also runs
@@ -107,43 +109,46 @@ class FormPass:
     shooter's part is over, and the rest of the frames are not looked at.
     """
 
-    def __init__(self, input_path, source_size, inference_size, frame_notes, output_path):
-        self.input_path = input_path
-        self.source_size = source_size
-        self.inference_size = inference_size
+    def __init__(self, video, frame_notes, output_path):
+        self.video = video     # only used to turn a kept frame into a picture
         self.frame_notes = frame_notes
         self.output_path = output_path
         self.thread = ThreadPoolExecutor(max_workers=1)
         self.shots = []        # one entry per shot handed to the thread
         self.pose_model = None
-        self.next_index = 0    # the next frame the second read of the video will give
+        self.next_index = 0    # frames before this one were already looked at for an earlier shot
         self.pose_frames = []  # the frames before each shot, with their joints
         self.seconds = 0.0
 
-    def add(self, event):
-        """Hand a shot to the thread and return straight away."""
-        self.shots.append(self.thread.submit(self.measure_shot, event))
+    def add(self, event, recent_frames):
+        """Hand a shot to the thread, with the frames before it. recent_frames is the main
+        loop's memory: (frame index, frame as read from the video), oldest first."""
+        # A waiting shot holds its frames in memory (about 100 MB), so at most one may wait.
+        if len(self.shots) >= 2:
+            self.shots[-2].result()
+        first_s, last_s = event["timestamp_s"] - FORM_WINDOW_S, event["timestamp_s"]
+        frames = [
+            (index, yuv) for index, yuv in recent_frames
+            if first_s <= self.frame_notes[index]["t"] <= last_s
+        ]
+        shot_number = len(self.shots) + 1
+        self.shots.append(self.thread.submit(self.measure_shot, event, shot_number, frames))
 
-    def measure_shot(self, event):
+    def measure_shot(self, event, shot_number, frames):
         start = time.perf_counter()
         if self.pose_model is None:
             self.pose_model = PoseModel()
-            self.video = VideoReader(self.input_path, *self.source_size)
             self.pose_file = (self.output_path / "pose.jsonl").open("w", encoding="utf-8")
         first_s, last_s = event["timestamp_s"] - FORM_WINDOW_S, event["timestamp_s"]
         last_held_s, in_the_air = first_s, False
-        # Walk forward to the shot. Frames an earlier shot already covered are not read again.
-        while self.next_index < len(self.frame_notes):
-            index, note = self.next_index, self.frame_notes[self.next_index]
-            # grab() skips a frame without turning it into a picture, which is much faster.
-            if note["t"] > last_s or not self.video.grab():
-                break
-            self.next_index += 1
-            if note["t"] < first_s:
+        for index, yuv in frames:
+            if index < self.next_index:
                 continue
+            self.next_index = index + 1
+            note = self.frame_notes[index]
             points, world = {}, {}
             if not in_the_air:
-                frame = cv.resize(self.video.retrieve(), self.inference_size, interpolation=cv.INTER_AREA)
+                frame = self.video.picture(yuv)
                 if not note["detected"]:
                     note.update(ball_and_hoop(yolo_detector.detect_full_frame(frame)))
                 points, world = self.pose_model.keypoints(frame, note["t"])
@@ -161,21 +166,26 @@ class FormPass:
                 and note["rim"] is not None
                 and any(y < note["rim"][1] for _, y, _ in note["balls"])
             )
-        frames = [frame for frame in self.pose_frames if first_s <= frame["t"] <= last_s]
-        event["form"] = measure(frames, last_s)
+        measured = [frame for frame in self.pose_frames if first_s <= frame["t"] <= last_s]
+        event["form"] = measure(measured, last_s)
+        # The pictures of where each number was read, drawn from the frames still in memory.
+        read_at = set(event["form"].get("seen_at", {}).values())
+        images = {
+            index: self.video.picture(yuv) for index, yuv in frames
+            if self.frame_notes[index]["t"] in read_at
+        }
+        save_pictures(shot_number, event["form"], measured, images, self.output_path / "form")
         self.seconds += time.perf_counter() - start
 
     def finish(self, on_progress):
-        """Wait for every shot. Returns the frames the pass looked at, for drawing the form pictures."""
+        """Wait for every shot."""
         for done, shot in enumerate(self.shots, start=1):
             shot.result()  # Also raises here anything that went wrong in the thread.
             on_progress("form", done, len(self.shots))
         self.thread.shutdown()
         if self.pose_model is not None:
-            self.video.release()
             self.pose_file.close()
             self.pose_model.close()
-        return self.pose_frames
 
 
 # main loop for each clip
@@ -199,14 +209,15 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
         raise RuntimeError(f"Video has no valid frame size: {input_path}")
     inference_size = get_inference_size(source_width, source_height)
     frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
-    # OpenCV was only asked about the video. The frames come from ffmpeg, which is faster.
+    # OpenCV was only asked about the video. The frames come from ffmpeg, which is faster,
+    # already shrunk to the detector's size. The annotated video is written at that size too.
     cap.release()
-    video = VideoReader(input_path, source_width, source_height)
+    video = VideoReader(input_path, *inference_size)
 
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    writer = start_video_writer(output_path / "annotated.mp4", fps, source_width, source_height)
+    writer = start_video_writer(output_path / "annotated.mp4", fps, *inference_size)
 
     # Each clip needs fresh state so a previous clip cannot affect the next one.
     ball_tracker = PredictiveBallTracker()
@@ -214,7 +225,10 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
     frame_index = 0
     shot_events = []
     frame_notes = []  # each frame's time, balls and hoop, kept for the form pass
-    form_pass = FormPass(input_path, (source_width, source_height), inference_size, frame_notes, output_path)
+    form_pass = FormPass(video, frame_notes, output_path)
+    # The newest frames, kept as ffmpeg handed them over, for the form pass. A shot is decided
+    # at most WATCH_S after the ball reaches the rim, and its form is read on the FORM_WINDOW_S before.
+    recent_frames = deque(maxlen=round(fps * (FORM_WINDOW_S + WATCH_S + 0.5)))
     make_count = 0
     miss_count = 0
 
@@ -235,7 +249,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
         json.dumps(
             {
                 "inference_resolution": list(inference_size),
-                "output_resolution": [source_width, source_height],
+                "output_resolution": list(inference_size),
                 "frame_coordinates": "inference_resolution",
                 "full_frame_imgsz": OFFLINE_YOLO_IMAGE_SIZE,
                 "focus_crop_imgsz": OFFLINE_FOCUS_IMAGE_SIZE,
@@ -252,7 +266,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
     # Seconds spent in each part of the loop, summed over all frames (saved to timings.json).
     timings = dict.fromkeys(
         ["read_resize", "ball_detector", "tracking_and_shots",
-         "drawing", "video_write", "json_write", "form", "form_pictures"],
+         "drawing", "video_write", "json_write", "form"],
         0.0,
     )
     job_start = time.perf_counter()
@@ -263,17 +277,17 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
     ahead_timings = {"read_resize": 0.0, "ball_detector": 0.0}
 
     def read_frame(detect):
-        """The next frame, its copy at the detector's size and its full-frame detections
-        (None when `detect` is False). None at the end of the video."""
+        """The next frame and its full-frame detections (None when `detect` is False).
+        None at the end of the video."""
         t = time.perf_counter()
-        if not video.grab():
+        yuv = video.read()
+        if yuv is None:
             return None
-        frame = video.retrieve()
-        inference_frame = cv.resize(frame, inference_size, interpolation=cv.INTER_AREA)
+        frame = video.picture(yuv)
         t = lap(ahead_timings, "read_resize", t)
-        full_detections = yolo_detector.detect_full_frame(inference_frame) if detect else None
+        full_detections = yolo_detector.detect_full_frame(frame) if detect else None
         lap(ahead_timings, "ball_detector", t)
-        return frame, inference_frame, full_detections
+        return yuv, frame, full_detections
 
     reader = ThreadPoolExecutor(max_workers=1)
     next_frames = reader.submit(read_frame, True)
@@ -296,7 +310,8 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                     read_frame,
                     (frame_index + 1) % DETECT_EVERY == 0 or shot_detector.rim_crop_wanted,
                 )
-                frame, inference_frame, full_detections = frames
+                yuv, frame, full_detections = frames
+                recent_frames.append((frame_index, yuv))
 
                 # This is source-video time, not how long processing takes.
                 timestamp_s = frame_index / fps
@@ -308,8 +323,8 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 detections, yolo_fps = [], 0
                 if detected:
                     _, detections, yolo_fps = yolo_detector.detect_frame_with_fps(
-                        inference_frame,
-                        focus_regions=[shot_detector.get_focus_region(inference_frame.shape)],
+                        frame,
+                        focus_regions=[shot_detector.get_focus_region(frame.shape)],
                         full_detections=full_detections,
                     )
                 t = lap(timings, "ball_detector", t)
@@ -328,10 +343,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 t = lap(timings, "tracking_and_shots", t)
 
                 output_frame = frame.copy()
-                overlay.draw(
-                    output_frame, tracked_ball, shot_result, make_count, miss_count,
-                    scale=frame.shape[1] / inference_size[0],
-                )
+                overlay.draw(output_frame, tracked_ball, shot_result, make_count, miss_count, scale=1)
                 t = lap(timings, "drawing", t)
                 writer.stdin.write(output_frame.data)
                 t = lap(timings, "video_write", t)
@@ -355,7 +367,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
 
                 if shot_result["event"]:
                     shot_events.append(shot_event(shot_result))
-                    form_pass.add(shot_events[-1])
+                    form_pass.add(shot_events[-1], recent_frames)
                 lap(timings, "json_write", t)
 
                 frame_index += 1
@@ -367,7 +379,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                 make_count += last_result["result"] == "MAKE"
                 miss_count += last_result["result"] == "MISS"
                 shot_events.append(shot_event(last_result))
-                form_pass.add(shot_events[-1])
+                form_pass.add(shot_events[-1], recent_frames)
     finally:
         # Closing its input tells ffmpeg there are no more frames. Then wait for it to finish the file.
         t = time.perf_counter()
@@ -379,14 +391,11 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
     if not video_written:
         raise RuntimeError("ffmpeg could not write annotated.mp4")
 
-    pose_frames = form_pass.finish(on_progress)
+    form_pass.finish(on_progress)
     # The helper thread and the form pass ran next to the loop, so the stages add up to more than the total.
     for stage, seconds in ahead_timings.items():
         timings[stage] += seconds
     timings["form"] = form_pass.seconds
-    t = time.perf_counter()
-    save_pictures(input_path, inference_size, shot_events, pose_frames, output_path / "form")
-    lap(timings, "form_pictures", t)
     with (output_path / "shot_events.jsonl").open("w", encoding="utf-8") as event_file:
         for event in shot_events:
             write_json_line(event_file, event)

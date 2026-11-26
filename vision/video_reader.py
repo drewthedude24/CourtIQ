@@ -12,6 +12,9 @@ class VideoReader:
     that into a normal picture. Here ffmpeg decodes in its own process and hands over 8-bit YUV
     (the brightness-plus-colour layout video is stored in), which OpenCV turns into its usual
     BGR picture in under a millisecond. The picture comes out a little darker than OpenCV's.
+
+    ffmpeg also shrinks the frames to `width` x `height` when the video is bigger (a phone
+    records 1080p, the detector looks at 720p), so Python never handles the full-size frames.
     """
 
     def __init__(self, path, width, height):
@@ -20,20 +23,21 @@ class VideoReader:
         self.ffmpeg = subprocess.Popen(
             ["ffmpeg", "-loglevel", "error", "-i", path,
              # passthrough: every frame of the video exactly once, none repeated or dropped.
-             "-fps_mode", "passthrough", "-pix_fmt", "yuv420p", "-f", "rawvideo", "-"],
+             "-fps_mode", "passthrough", "-vf", f"scale={width}:{height}",
+             "-pix_fmt", "yuv420p", "-f", "rawvideo", "-"],
             stdout=subprocess.PIPE,
         )
 
-    def grab(self):
-        """Move to the next frame without making a picture of it. False at the end of the video."""
+    def read(self):
+        """The next frame as ffmpeg hands it over (raw YUV, half the size of a BGR picture).
+        None at the end of the video."""
         size = self.shape[0] * self.shape[1]
-        self.yuv = self.ffmpeg.stdout.read(size)
-        return len(self.yuv) == size
+        yuv = self.ffmpeg.stdout.read(size)
+        return yuv if len(yuv) == size else None
 
-    def retrieve(self):
-        """The frame grab() moved to, as a BGR picture."""
-        yuv = np.frombuffer(self.yuv, np.uint8).reshape(self.shape)
-        return cv.cvtColor(yuv, cv.COLOR_YUV2BGR_I420)
+    def picture(self, yuv):
+        """A frame from read(), as a BGR picture."""
+        return cv.cvtColor(np.frombuffer(yuv, np.uint8).reshape(self.shape), cv.COLOR_YUV2BGR_I420)
 
     def release(self):
         self.ffmpeg.kill()  # It may still be decoding frames nobody will read.
