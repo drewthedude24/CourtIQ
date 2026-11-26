@@ -230,10 +230,11 @@ class FormPass:
         event["form"] = measure(frames, last_s)
         self.seconds += time.perf_counter() - start
 
-    def finish(self):
+    def finish(self, on_progress):
         """Wait for every shot. Returns the frames pose was run on, for drawing the form pictures."""
-        for shot in self.shots:
+        for done, shot in enumerate(self.shots, start=1):
             shot.result()  # Also raises here anything that went wrong in the thread.
+            on_progress("form", done, len(self.shots))
         self.thread.shutdown()
         if self.pose_model is not None:
             self.cap.release()
@@ -243,7 +244,10 @@ class FormPass:
 
 
 # main loop for each clip
-def process_vid(input_path, output_folder):
+def process_vid(input_path, output_folder, on_progress=lambda stage, done, total: None):
+    """Find the shots in a video. on_progress(stage, done, total) is called as the work moves
+    along: stage "detect" counts video frames, then stage "form" counts shots. The form pass
+    runs next to the detector, so by then most shots are already measured."""
     cap = cv.VideoCapture(input_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {input_path}")
@@ -259,6 +263,7 @@ def process_vid(input_path, output_folder):
         cap.release()
         raise RuntimeError(f"Video has no valid frame size: {input_path}")
     inference_size = get_inference_size(source_width, source_height)
+    frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
 
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -452,6 +457,7 @@ def process_vid(input_path, output_folder):
 
                 previous_tracking_status = tracked_ball["tracking_status"]
                 frame_index += 1
+                on_progress("detect", frame_index, frame_count)
 
             # The video can end while a shot is still being watched.
             last_result = shot_detector.finish()
@@ -471,7 +477,7 @@ def process_vid(input_path, output_folder):
     if not video_written:
         raise RuntimeError("ffmpeg could not write annotated.mp4")
 
-    pose_frames = form_pass.finish()
+    pose_frames = form_pass.finish(on_progress)
     # The helper thread and the form pass ran next to the loop, so the stages add up to more than the total.
     for stage, seconds in ahead_timings.items():
         timings[stage] += seconds
