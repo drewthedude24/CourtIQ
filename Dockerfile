@@ -8,7 +8,7 @@ RUN npm run build
 
 FROM python:3.12-slim
 
-# ffmpeg converts the annotated video to H.264 so browsers can play it.
+# ffmpeg writes the annotated video as H.264 so browsers can play it.
 # libegl1 and libgles2 are graphics libraries MediaPipe loads at start, even when it runs on the CPU.
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libegl1 libgles2 \
     && rm -rf /var/lib/apt/lists/*
@@ -28,15 +28,16 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # OpenVINO runs the same trained models about 2x faster on a CPU, with identical detections.
 RUN pip install --no-cache-dir openvino
 
-COPY backend backend
-COPY vision vision
-COPY db db
-COPY models models
-
 # Convert the model to OpenVINO (next to the .pt file). vision/yolo_detector.py uses it
 # whenever there is no Mac GPU. dynamic=True because the code runs two image sizes.
+# Done before the code is copied, so a code change does not redo the conversion.
+COPY models models
 RUN python -c "from ultralytics import YOLO; \
 YOLO('models/basketball_yolo.pt').export(format='openvino', dynamic=True)"
+
+COPY db db
+COPY vision vision
+COPY backend backend
 
 COPY --from=frontend /frontend/dist frontend/dist
 
