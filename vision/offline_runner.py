@@ -315,6 +315,30 @@ def process_vid(input_path, output_folder):
     )
     job_start = time.perf_counter()
 
+    # A helper thread works one frame ahead of the loop below: it reads the next frame and
+    # runs the full-frame ball detector on it. Neither needs anything from the frame before.
+    # The zoomed-in crops do (they follow the tracked ball), so they stay in the loop.
+    ahead_timings = {"read_resize": 0.0, "ball_detector": 0.0}
+
+    def read_frame():
+        """The next frame, its copy at the detector's size and its full-frame detections.
+        None at the end of the video."""
+        t = time.perf_counter()
+        ret, frame = cap.read()
+        if not ret:
+            return None
+        inference_frame = cv.resize(frame, inference_size, interpolation=cv.INTER_AREA)
+        t = lap(ahead_timings, "read_resize", t)
+        full_detections = None
+        # With an interval above 1 the loop decides frame by frame, so nothing is run ahead.
+        if OFFLINE_FULL_FRAME_INTERVAL == 1:
+            full_detections = yolo_detector.detect_full_frame(inference_frame)
+        lap(ahead_timings, "ball_detector", t)
+        return frame, inference_frame, full_detections
+
+    reader = ThreadPoolExecutor(max_workers=1)
+    next_frames = reader.submit(read_frame)
+
     try:
         with (output_path / "frames.jsonl").open("w", encoding="utf-8") as json_file:
             while True:
@@ -324,19 +348,15 @@ def process_vid(input_path, output_folder):
                 # Not on a Mac with a GPU, where all cores made the pose model slower.
                 if not torch.backends.mps.is_available():
                     torch.set_num_threads(os.cpu_count())
-                t = time.perf_counter()
-                ret, frame = cap.read()
-                if not ret:
+                frames = next_frames.result()
+                if frames is None:
                     break
+                next_frames = reader.submit(read_frame)
+                frame, inference_frame, full_detections = frames
 
                 # This is source-video time, not how long processing takes.
                 timestamp_s = frame_index / fps
-                inference_frame = cv.resize(
-                    frame,
-                    inference_size,
-                    interpolation=cv.INTER_AREA,
-                )
-                t = lap(timings, "read_resize", t)
+                t = time.perf_counter()
 
                 focus_regions = []
                 ball_focus_region = ball_tracker.get_focus_region(
@@ -360,6 +380,7 @@ def process_vid(input_path, output_folder):
                     inference_frame,
                     focus_regions=focus_regions,
                     run_full_frame=run_full_frame,
+                    full_detections=full_detections,
                 )
                 t = lap(timings, "ball_detector", t)
                 tracked_ball = ball_tracker.update(detections)
@@ -445,12 +466,15 @@ def process_vid(input_path, output_folder):
         writer.stdin.close()
         video_written = writer.wait() == 0
         lap(timings, "video_write", t)
+        reader.shutdown()  # Waits for a frame that is still being read, so the video can be closed.
         cap.release()
     if not video_written:
         raise RuntimeError("ffmpeg could not write annotated.mp4")
 
     pose_frames = form_pass.finish()
-    # The form pass ran next to the detector, so the stages now add up to more than the total.
+    # The helper thread and the form pass ran next to the loop, so the stages add up to more than the total.
+    for stage, seconds in ahead_timings.items():
+        timings[stage] += seconds
     timings["form"] = form_pass.seconds
     t = time.perf_counter()
     save_pictures(input_path, inference_size, shot_events, pose_frames, output_path / "form")

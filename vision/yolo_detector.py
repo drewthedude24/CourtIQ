@@ -49,7 +49,11 @@ class YoloDetector():
         focus_image_size=640,
         focus_skip_confidence=0.45,
     ):
-        self.model = YOLO(model_for_this_machine(model), task="detect")
+        model = model_for_this_machine(model)
+        self.model = YOLO(model, task="detect")
+        # A second copy of the same model. One copy can only run one picture at a time, and
+        # offline_runner runs the next frame's full-frame pass while this frame's crops run.
+        self.full_frame_model = YOLO(model, task="detect")
         self.conf = confidence_threshold
         self.device = device
         self.image_size = image_size
@@ -65,12 +69,26 @@ class YoloDetector():
         return annotated_frame
     """
 
+    def detect_full_frame(self, frame):
+        """Only the full-frame pass. It needs nothing from earlier frames, so it can run ahead."""
+        results = self.full_frame_model.predict(
+            frame,
+            imgsz=self.image_size,
+            verbose=False,
+            conf=self.conf,
+            device=self.device,
+            classes=[0, 1],
+        )
+        return self._extract_detections(results[0], source="full")
+
     # returns annotated frame + YOLO inference FPS
+    # full_detections: what detect_full_frame() already found on this frame, so it is not run again.
     def detect_frame_with_fps(
         self,
         frame,
         focus_regions=None,
         run_full_frame=True,
+        full_detections=None,
     ):
         start_time = time.perf_counter()
         normalized_regions = self._normalize_focus_regions(
@@ -80,7 +98,10 @@ class YoloDetector():
         run_full_frame = run_full_frame or not normalized_regions
         self.last_full_frame_run = run_full_frame
 
-        if run_full_frame:
+        if full_detections is not None:
+            detections = full_detections
+            annotated_frame = frame.copy()
+        elif run_full_frame:
             full_results = self.model.predict(
                 frame,
                 imgsz=self.image_size,
