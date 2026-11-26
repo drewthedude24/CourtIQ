@@ -170,10 +170,10 @@ real ball backward from the rim to the hand (`find_release` in `vision/shot_form
 
 ## In the real pipeline
 
-`process_vid` now measures form itself. Each time a shot is found, a second thread goes
-back over the video and runs MediaPipe on only the 2.5 s before that shot (`FormPass` in
-`vision/offline_runner.py`), then adds a `form` block to the shot event. The detector
-keeps going meanwhile. The keypoints are saved to `pose.jsonl` next to `frames.jsonl`.
+`process_vid` now measures form itself. The main loop keeps the last few seconds of frames
+in memory. Each time a shot is found, a second thread runs MediaPipe on only the 2.5 s
+before that shot (`FormPass` in `vision/offline_runner.py`), then adds a `form` block to
+the shot event. The detector keeps going meanwhile. The keypoints are saved to `pose.jsonl` next to `frames.jsonl`.
 
 Reproduce: a full run in Docker, then the form table from what that run saved.
 
