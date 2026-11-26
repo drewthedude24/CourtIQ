@@ -20,6 +20,9 @@ import overlay
 
 
 OFFLINE_INFERENCE_SIZE = (1280, 720)
+# The annotated video is saved smaller than the detector's picture: it encodes faster and
+# still fills a phone screen.
+OFFLINE_VIDEO_SIZE = (960, 540)
 OFFLINE_YOLO_IMAGE_SIZE = 640
 OFFLINE_FOCUS_IMAGE_SIZE = 448
 OFFLINE_CONFIDENCE_THRESHOLD = 0.12
@@ -80,9 +83,9 @@ def lap(timings, stage, start):
     return now
 
 
-def get_inference_size(source_width, source_height):
-    """Fit the source into the configured bounds without stretching it."""
-    max_width, max_height = OFFLINE_INFERENCE_SIZE
+def get_inference_size(source_width, source_height, bounds=None):
+    """Fit the source into the bounds (the detector's size if none are given) without stretching it."""
+    max_width, max_height = bounds or OFFLINE_INFERENCE_SIZE
     source_is_portrait = source_height > source_width
     bounds_are_portrait = max_height > max_width
     if source_is_portrait != bounds_are_portrait:
@@ -209,15 +212,16 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
         raise RuntimeError(f"Video has no valid frame size: {input_path}")
     inference_size = get_inference_size(source_width, source_height)
     frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+    video_size = get_inference_size(source_width, source_height, OFFLINE_VIDEO_SIZE)
     # OpenCV was only asked about the video. The frames come from ffmpeg, which is faster,
-    # already shrunk to the detector's size. The annotated video is written at that size too.
+    # already shrunk to the detector's size.
     cap.release()
     video = VideoReader(input_path, *inference_size)
 
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    writer = start_video_writer(output_path / "annotated.mp4", fps, *inference_size)
+    writer = start_video_writer(output_path / "annotated.mp4", fps, *video_size)
 
     # Each clip needs fresh state so a previous clip cannot affect the next one.
     ball_tracker = PredictiveBallTracker()
@@ -249,7 +253,7 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
         json.dumps(
             {
                 "inference_resolution": list(inference_size),
-                "output_resolution": list(inference_size),
+                "output_resolution": list(video_size),
                 "frame_coordinates": "inference_resolution",
                 "full_frame_imgsz": OFFLINE_YOLO_IMAGE_SIZE,
                 "focus_crop_imgsz": OFFLINE_FOCUS_IMAGE_SIZE,
@@ -342,8 +346,11 @@ def process_vid(input_path, output_folder, on_progress=lambda stage, done, total
                         miss_count += 1
                 t = lap(timings, "tracking_and_shots", t)
 
-                output_frame = frame.copy()
-                overlay.draw(output_frame, tracked_ball, shot_result, make_count, miss_count, scale=1)
+                output_frame = cv.resize(frame, video_size, interpolation=cv.INTER_LINEAR)
+                overlay.draw(
+                    output_frame, tracked_ball, shot_result, make_count, miss_count,
+                    scale=video_size[0] / inference_size[0],
+                )
                 t = lap(timings, "drawing", t)
                 writer.stdin.write(output_frame.data)
                 t = lap(timings, "video_write", t)
