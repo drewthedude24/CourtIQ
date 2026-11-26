@@ -1,6 +1,9 @@
 import { formatDate, formatPct } from "./format";
 import type { SessionSummary } from "./types";
 
+// What an unfinished session's row says where its shooting % would be.
+const STATE_WORDS = { QUEUED: "Waiting", PROCESSING: "Processing", FAILED: "Failed", COMPLETED: "" };
+
 type Props = {
   sessions: SessionSummary[];
   selectedId: string | undefined;
@@ -11,7 +14,7 @@ type Props = {
 
 export default function SessionsTable({ sessions, selectedId, disabled, onSelect, onDelete }: Props) {
   return (
-    <section>
+    <section id="sessions">
       <h2>Your sessions</h2>
       <p className="detail caption">Click a session to watch it.</p>
       {sessions.length === 0 ? (
@@ -30,8 +33,9 @@ export default function SessionsTable({ sessions, selectedId, disabled, onSelect
           </thead>
           <tbody>
             {sessions.map((row) => {
-              // Only finished sessions have a video to open.
-              const canOpen = row.status === "COMPLETED" && !disabled;
+              // A finished session opens its video, a running one its progress, a failed one its error.
+              const canOpen = !disabled;
+              const done = row.status === "COMPLETED";
               const classes = [canOpen && "clickable", row.id === selectedId && "selected"];
               return (
                 // Clicking anywhere on the row opens it. The button is there for the keyboard:
@@ -45,14 +49,11 @@ export default function SessionsTable({ sessions, selectedId, disabled, onSelect
                     {canOpen ? <button type="button">{row.original_filename}</button> : row.original_filename}
                   </td>
                   <td className="wide-only">{formatDate(row.created_at)}</td>
-                  <td className="num">{row.makes}</td>
-                  <td className="num">{row.misses}</td>
+                  {/* An unfinished session has no counts yet, so its cells stay empty. */}
+                  <td className="num">{done && row.makes}</td>
+                  <td className="num">{done && row.misses}</td>
                   <td className="num">
-                    {row.status === "COMPLETED" ? (
-                      formatPct(row.shooting_pct)
-                    ) : (
-                      <span className="detail">{row.status.toLowerCase()}</span>
-                    )}
+                    {done ? formatPct(row.shooting_pct) : <span className="detail">{STATE_WORDS[row.status]}</span>}
                   </td>
                   <td className="num">
                     <button

@@ -177,7 +177,7 @@ def draw_source_detections(frame, detections, focus_regions, scale_x, scale_y):
             cv.LINE_AA,
         )
 
-def add_form(input_path, inference_size, shot_events, frame_notes, output_path):
+def add_form(input_path, inference_size, shot_events, frame_notes, output_path, on_progress):
     """Go back over the video and measure the shooter's form on each shot.
 
     A shot is only known once the ball reaches the rim, about a second after the release. So this
@@ -209,6 +209,7 @@ def add_form(input_path, inference_size, shot_events, frame_notes, output_path):
             points, world = pose_model.keypoints(frame, frame_notes[index]["t"])
             write_json_line(pose_file, {"frame_index": index, "points": points, "world": world})
             pose_frames.append(dict(frame_notes[index], index=index, points=points, world=world))
+            on_progress("form", len(pose_frames), len(wanted))
     cap.release()
     pose_model.close()
     for event in shot_events:
@@ -218,7 +219,9 @@ def add_form(input_path, inference_size, shot_events, frame_notes, output_path):
 
 
 # main loop for each clip
-def process_vid(input_path, output_folder):
+def process_vid(input_path, output_folder, on_progress=lambda stage, done, total: None):
+    """Find the shots in a video. on_progress(stage, done, total) is called as the work moves
+    along: stage "detect" counts video frames, stage "form" counts pose frames."""
     cap = cv.VideoCapture(input_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {input_path}")
@@ -234,6 +237,7 @@ def process_vid(input_path, output_folder):
         cap.release()
         raise RuntimeError(f"Video has no valid frame size: {input_path}")
     inference_size = get_inference_size(source_width, source_height)
+    frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
 
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -413,6 +417,7 @@ def process_vid(input_path, output_folder):
 
                 previous_tracking_status = tracked_ball["tracking_status"]
                 frame_index += 1
+                on_progress("detect", frame_index, frame_count)
 
             # The video can end while a shot is still being watched.
             last_result = shot_detector.finish()
@@ -425,7 +430,9 @@ def process_vid(input_path, output_folder):
         cap.release()
 
     t = time.perf_counter()
-    pose_frames = add_form(input_path, inference_size, shot_events, frame_notes, output_path)
+    pose_frames = add_form(
+        input_path, inference_size, shot_events, frame_notes, output_path, on_progress
+    )
     lap(timings, "form", t)
     t = time.perf_counter()
     save_pictures(input_path, inference_size, shot_events, pose_frames, output_path / "form")

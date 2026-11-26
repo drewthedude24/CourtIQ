@@ -25,8 +25,13 @@ export function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-// 45.6 -> "0:46"
+// "2026-11-01" -> "Nov 2026"
+export function formatMonth(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+// 45.6 -> "0:45", the way a video player's clock reads
 export function formatTime(seconds: number) {
-  const whole = Math.round(seconds);
+  const whole = Math.floor(seconds);
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }

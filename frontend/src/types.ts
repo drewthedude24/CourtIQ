@@ -38,6 +38,14 @@ export type FormSummary = FormNumbers & {
   flight_time_s_spread: number | null;
 };
 
+// How far a running job is (backend/app.py: progress). "detect" counts video frames and
+// "form" counts the frames the pose model runs on. "encode" has no count, so total is 0.
+export type Progress = {
+  stage: "detect" | "form" | "encode";
+  done: number;
+  total: number;
+};
+
 // GET /api/sessions/{id}
 export type Session = {
   id: string;
@@ -52,6 +60,8 @@ export type Session = {
   shots: Shot[];
   // makes or misses is null when the session has none.
   form: { makes: FormSummary | null; misses: FormSummary | null; all: FormSummary };
+  // null unless the job is running right now.
+  progress: Progress | null;
 };
 
 // One row of GET /api/stats/form: a session's average form numbers and their spread.
