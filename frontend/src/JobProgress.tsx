@@ -2,13 +2,12 @@ import { useRef, type CSSProperties } from "react";
 import { formatTime } from "./format";
 import type { Progress } from "./types";
 
-// The four things that happen to a clip, in order. Each has its own piece of the bar,
+// The three things that happen to a clip, in order. Each has its own piece of the bar,
 // and `share` is how wide that piece is (the slow steps get more room).
 const STAGES = [
   { key: "upload", label: "Upload", share: 1 },
   { key: "detect", label: "Find shots", share: 3 },
-  { key: "form", label: "Measure form", share: 2 },
-  { key: "encode", label: "Finish video", share: 1 },
+  { key: "form", label: "Measure form", share: 1 },
 ] as const;
 
 type Props = {
@@ -28,7 +27,7 @@ export default function JobProgress({ filename, upload, progress }: Props) {
   const current = STAGES.findIndex((s) => s.key === stage);
   const done = upload ? upload.sent : (progress?.done ?? 0);
   const total = upload ? upload.total : (progress?.total ?? 0);
-  // The video conversion reports no count, so its piece shows moving stripes instead.
+  // Before the detector reports its first frame there is no count yet.
   const counted = total > 0;
   const fraction = counted ? Math.min(1, done / total) : 0;
   const percent = Math.floor(fraction * 100);
@@ -42,9 +41,8 @@ export default function JobProgress({ filename, upload, progress }: Props) {
 
   let doing = "Getting the detector ready";
   if (upload) doing = `Uploading, ${megabytes(done)} of ${megabytes(total)} MB`;
-  else if (stage === "encode") doing = "Saving the video so it plays in your browser";
   else if (counted && stage === "detect") doing = `Finding shots, frame ${done.toLocaleString()} of ${total.toLocaleString()}`;
-  else if (counted) doing = `Measuring form, frame ${done.toLocaleString()} of ${total.toLocaleString()} around your shots`;
+  else if (counted) doing = `Measuring form, shot ${done} of ${total}`;
 
   return (
     <div className="job">

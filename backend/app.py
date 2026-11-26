@@ -1,7 +1,5 @@
 import shutil
-import subprocess
 import sys
-import time
 import traceback
 from datetime import date
 from pathlib import Path
@@ -41,8 +39,6 @@ WEB_FULL_IMAGE_SIZE = 640
 WEB_FOCUS_IMAGE_SIZE = 448
 WEB_FULL_FRAME_INTERVAL = 1
 WEB_CONFIDENCE_THRESHOLD = 0.12
-# OpenCV on Linux can't write H.264, so write mp4v and let ffmpeg convert it.
-WEB_VIDEO_CODEC = "mp4v"
 
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 RESULT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -60,8 +56,7 @@ app.add_middleware(
 vision_lock = Lock()
 process_video = None
 # How far each running job is, for the page's progress bar: session id -> stage, done, total.
-# "detect" counts video frames, "form" counts the frames the pose model runs on, and
-# "encode" (the H.264 conversion) has no count. Kept in memory, since it only matters
+# "detect" counts video frames, then "form" counts shots. Kept in memory, since it only matters
 # while the job runs and the job runs inside this same process.
 progress = {}
 
@@ -81,25 +76,11 @@ def load_vision_processor():
         offline_runner.OFFLINE_FOCUS_IMAGE_SIZE = WEB_FOCUS_IMAGE_SIZE
         offline_runner.OFFLINE_FULL_FRAME_INTERVAL = WEB_FULL_FRAME_INTERVAL
         offline_runner.OFFLINE_CONFIDENCE_THRESHOLD = WEB_CONFIDENCE_THRESHOLD
-        offline_runner.OFFLINE_VIDEO_CODEC = WEB_VIDEO_CODEC
         offline_runner.yolo_detector.image_size = WEB_FULL_IMAGE_SIZE
         offline_runner.yolo_detector.focus_image_size = WEB_FOCUS_IMAGE_SIZE
         offline_runner.yolo_detector.conf = WEB_CONFIDENCE_THRESHOLD
         process_video = offline_runner.process_vid
     return process_video
-
-
-def convert_to_h264(video_path):
-    """Re-encode a video to H.264 in place, the codec every browser can play."""
-    video_path = Path(video_path)
-    converted_path = video_path.with_name("h264_" + video_path.name)
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video_path),
-         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-         str(converted_path)],
-        check=True,
-    )
-    converted_path.replace(video_path)
 
 
 def form_picture(session_id, shot_number, name):
@@ -150,10 +131,6 @@ def run_processing_job(session_id, input_path, output_directory):
         output_path = Path(output_directory) / "annotated.mp4"
         if not output_path.exists():
             raise RuntimeError("Vision processing finished without creating annotated.mp4")
-        report("encode", 0, 0)
-        start = time.perf_counter()
-        convert_to_h264(output_path)
-        print(f"[{session_id}] H.264 conversion took {time.perf_counter() - start:.1f} s", flush=True)
         mark_completed(session_id, output_path.relative_to(PROJECT_ROOT), events)
     except Exception as error:
         traceback.print_exc()

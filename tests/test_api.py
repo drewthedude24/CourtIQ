@@ -23,9 +23,9 @@ def empty_database():
 def uploaded_clip(monkeypatch):
     """Upload a fake clip and return its session id.
 
-    The real detector takes minutes and ffmpeg needs a real video, so both are
-    replaced: the fake detector writes a tiny annotated.mp4 and reports one make
-    with two form numbers measured, and a picture for one of them.
+    The real detector takes minutes, so it is replaced: the fake detector writes a
+    tiny annotated.mp4 and reports one make with two form numbers measured, and a
+    picture for one of them.
     TestClient finishes the background processing job before the upload returns.
     """
 
@@ -37,7 +37,6 @@ def uploaded_clip(monkeypatch):
         return [{"result": "MAKE", "timestamp_s": 1.5, "form": form}]
 
     monkeypatch.setattr(api, "load_vision_processor", lambda: fake_detector)
-    monkeypatch.setattr(api, "convert_to_h264", lambda path: None)
 
     files = {"file": ("clip.mov", b"fake upload", "video/quicktime")}
     session_id = client.post("/api/sessions", files=files).json()["id"]
@@ -131,7 +130,6 @@ def test_a_running_job_reports_how_far_it_is(monkeypatch):
         return []
 
     monkeypatch.setattr(api, "load_vision_processor", lambda: fake_detector)
-    monkeypatch.setattr(api, "convert_to_h264", lambda path: None)
 
     files = {"file": ("clip.mov", b"fake upload", "video/quicktime")}
     session_id = client.post("/api/sessions", files=files).json()["id"]

@@ -39,9 +39,9 @@ export type FormSummary = FormNumbers & {
 };
 
 // How far a running job is (backend/app.py: progress). "detect" counts video frames and
-// "form" counts the frames the pose model runs on. "encode" has no count, so total is 0.
+// "form" counts shots. The form pass runs next to the detector, so "form" fills quickly.
 export type Progress = {
-  stage: "detect" | "form" | "encode";
+  stage: "detect" | "form";
   done: number;
   total: number;
 };
