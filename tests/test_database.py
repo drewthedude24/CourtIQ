@@ -37,12 +37,12 @@ def empty_database():
 @pytest.fixture
 def user():
     """The id of the person whose sessions a test makes."""
-    return database.create_user("ann@example.com", "not a real hash")
+    return database.get_or_create_user("ann@example.com")
 
 
 @pytest.fixture
 def other_user():
-    return database.create_user("ben@example.com", "not a real hash")
+    return database.get_or_create_user("ben@example.com")
 
 
 def test_new_session_is_queued_with_no_shots(user):
@@ -262,7 +262,18 @@ def test_unknown_email_is_none():
 
 
 def test_an_email_has_only_one_account(user):
-    assert database.create_user("ann@example.com", "another hash") is None
+    assert database.get_or_create_user("ann@example.com") == user
+
+
+def test_a_database_from_the_password_version_still_works():
+    # The first accounts version kept a password hash on users (RDS has it). Starting the
+    # app again removes that column, so users can be made with an email alone.
+    run_sql("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text NOT NULL DEFAULT ''")
+    run_sql("ALTER TABLE users ALTER COLUMN password_hash DROP DEFAULT")
+
+    database.initialize_database()
+
+    assert database.get_or_create_user("ann@example.com") is not None
 
 
 def test_schema_rejects_session_of_unknown_user():

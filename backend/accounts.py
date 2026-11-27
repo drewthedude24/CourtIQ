@@ -1,16 +1,18 @@
-"""Sign up, log in and log out.
+"""Log in with an email, and log out.
+
+There is no password: typing an email logs you in, and a new email makes a new account.
+So anyone who knows your email can log in as you. That's fine for a hobby project, and an
+emailed code would fix it later.
 
 A login is a long random token in a cookie. The database keeps only its SHA-256 hash in
 `login_sessions`, so logging out (deleting the row) ends it right away, and someone who
-reads the table still can't log in as anyone. Passwords are kept only as argon2 hashes.
+reads the table still can't log in as anyone.
 """
 
 import hashlib
 import secrets
 from typing import Annotated
 
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
@@ -19,15 +21,12 @@ from . import database
 
 COOKIE_NAME = "courtiq_login"
 LOGIN_DAYS = 30
-MIN_PASSWORD_LENGTH = 8
 
-password_hasher = PasswordHasher()
 router = APIRouter()
 
 
-class Credentials(BaseModel):
+class LoginRequest(BaseModel):
     email: str
-    password: str
 
 
 def hash_token(token):
@@ -57,37 +56,13 @@ def start_login(request, response, user_id):
     )
 
 
-def password_matches(password_hash, password):
-    try:
-        return password_hasher.verify(password_hash, password)
-    except VerifyMismatchError:
-        return False
-
-
-@router.post("/api/signup", status_code=201)
-def sign_up(credentials: Credentials, request: Request, response: Response):
-    email = credentials.email.strip().lower()
+@router.post("/api/login")
+def log_in(login: LoginRequest, request: Request, response: Response):
+    email = login.email.strip().lower()
     if "@" not in email:
         raise HTTPException(status_code=400, detail="Enter a real email address.")
-    if len(credentials.password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Use a password of at least {MIN_PASSWORD_LENGTH} characters.",
-        )
-    user_id = database.create_user(email, password_hasher.hash(credentials.password))
-    if user_id is None:
-        raise HTTPException(status_code=409, detail="That email already has an account. Log in instead.")
-    start_login(request, response, user_id)
+    start_login(request, response, database.get_or_create_user(email))
     return {"email": email}
-
-
-@router.post("/api/login")
-def log_in(credentials: Credentials, request: Request, response: Response):
-    user = database.get_user_by_email(credentials.email.strip().lower())
-    if user is None or not password_matches(user["password_hash"], credentials.password):
-        raise HTTPException(status_code=401, detail="Wrong email or password.")
-    start_login(request, response, user["id"])
-    return {"email": user["email"]}
 
 
 @router.post("/api/logout", status_code=204)

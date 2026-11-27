@@ -17,19 +17,25 @@ def client():
     return TestClient(app)
 
 
-def sign_up(client, email="ann@example.com", password="correct horse"):
-    return client.post("/api/signup", json={"email": email, "password": password})
+def log_in(client, email="ann@example.com"):
+    return client.post("/api/login", json={"email": email})
 
 
-def test_signing_up_logs_you_in(client):
-    response = sign_up(client)
+def users_count():
+    with database.connect() as connection:
+        return connection.execute("SELECT count(*) AS n FROM users").fetchone()["n"]
 
-    assert response.status_code == 201
+
+def test_typing_an_email_logs_you_in(client):
+    response = log_in(client)
+
+    assert response.status_code == 200
+    assert response.json() == {"email": "ann@example.com"}
     assert client.get("/api/me").json() == {"email": "ann@example.com"}
 
 
 def test_login_cookie_is_hidden_from_page_scripts_and_lasts_30_days(client):
-    cookie = sign_up(client).headers["set-cookie"]
+    cookie = log_in(client).headers["set-cookie"]
 
     assert cookie.startswith("courtiq_login=")
     assert "HttpOnly" in cookie
@@ -40,23 +46,14 @@ def test_login_cookie_is_hidden_from_page_scripts_and_lasts_30_days(client):
 
 
 def test_email_is_saved_trimmed_and_lowercase(client):
-    sign_up(client, email="  Ann@Example.COM ")
+    log_in(client, email="  Ann@Example.COM ")
 
     assert client.get("/api/me").json() == {"email": "ann@example.com"}
 
 
-def test_password_is_stored_as_an_argon2_hash(client):
-    sign_up(client, password="correct horse")
-
-    with database.connect() as connection:
-        stored = connection.execute("SELECT password_hash FROM users").fetchone()["password_hash"]
-    assert stored.startswith("$argon2id$")
-    assert "correct horse" not in stored
-
-
 def test_login_token_is_stored_only_as_a_hash(client):
     # Someone who reads the table can't copy a row into a cookie and be logged in.
-    sign_up(client)
+    log_in(client)
     token = client.cookies["courtiq_login"]
 
     with database.connect() as connection:
@@ -65,53 +62,40 @@ def test_login_token_is_stored_only_as_a_hash(client):
     assert len(stored) == 64
 
 
-@pytest.mark.parametrize(
-    ("email", "password"),
-    [("not-an-email", "correct horse"), ("ann@example.com", "short")],
-)
-def test_bad_email_or_short_password_is_rejected(client, email, password):
-    response = sign_up(client, email=email, password=password)
+@pytest.mark.parametrize("email", ["not-an-email", "", "   "])
+def test_something_that_is_not_an_email_is_rejected(client, email):
+    response = log_in(client, email=email)
 
     assert response.status_code == 400
     assert client.get("/api/me").status_code == 401
+    assert users_count() == 0
 
 
-def test_an_email_can_only_sign_up_once(client):
-    sign_up(client)
+def test_a_new_email_makes_a_new_account(client):
+    log_in(client, email="ann@example.com")
+    log_in(TestClient(app), email="ben@example.com")
 
-    response = sign_up(TestClient(app), email="ANN@example.com")
-
-    assert response.status_code == 409
+    assert users_count() == 2
 
 
-def test_log_in_with_the_right_password(client):
-    sign_up(client)
+def test_the_same_email_again_is_the_same_account(client):
+    log_in(client)
     other_browser = TestClient(app)
 
-    response = other_browser.post("/api/login", json={"email": "Ann@example.com", "password": "correct horse"})
+    log_in(other_browser, email="ANN@example.com")
 
-    assert response.status_code == 200
+    assert users_count() == 1
     assert other_browser.get("/api/me").json() == {"email": "ann@example.com"}
 
 
-@pytest.mark.parametrize(
-    ("email", "password"),
-    [("ann@example.com", "wrong horse"), ("nobody@example.com", "correct horse")],
-)
-def test_wrong_password_or_unknown_email_cannot_log_in(client, email, password):
-    sign_up(client)
-    other_browser = TestClient(app)
+def test_there_is_no_sign_up_route_any_more(client):
+    client.post("/api/signup", json={"email": "ann@example.com"})
 
-    response = other_browser.post("/api/login", json={"email": email, "password": password})
-
-    assert response.status_code == 401
-    # The same answer for both, so nobody can test which emails have accounts by logging in.
-    assert response.json()["detail"] == "Wrong email or password."
-    assert other_browser.get("/api/me").status_code == 401
+    assert client.get("/api/me").status_code == 401
 
 
 def test_log_out_ends_the_login_on_the_server(client):
-    sign_up(client)
+    log_in(client)
     token = client.cookies["courtiq_login"]
 
     assert client.post("/api/logout").status_code == 204
@@ -123,7 +107,7 @@ def test_log_out_ends_the_login_on_the_server(client):
 
 
 def test_an_expired_login_no_longer_works(client):
-    sign_up(client)
+    log_in(client)
     with database.connect() as connection:
         connection.execute("UPDATE login_sessions SET expires_at = now() - interval '1 second'")
 

@@ -13,9 +13,9 @@ pytestmark = pytest.mark.usefixtures("test_storage")
 
 
 def logged_in_browser(email):
-    """A browser (its own cookie jar) that has signed up and is logged in."""
+    """A browser (its own cookie jar) that is logged in with that email."""
     browser = TestClient(app)
-    browser.post("/api/signup", json={"email": email, "password": "correct horse"})
+    browser.post("/api/login", json={"email": email})
     return browser
 
 

@@ -48,25 +48,18 @@ def initialize_database():
         connection.execute(SCHEMA_PATH.read_text())
 
 
-def create_user(email, password_hash):
-    # Returns the new user's id, or None when that email already has an account.
+def get_or_create_user(email):
+    # The id of the account with this email, made first if it's a new email.
     with connect() as connection:
-        row = connection.execute(
-            """
-            INSERT INTO users (email, password_hash) VALUES (%s, %s)
-            ON CONFLICT (email) DO NOTHING
-            RETURNING id
-            """,
-            (email, password_hash),
-        ).fetchone()
-    return None if row is None else row["id"]
+        connection.execute(
+            "INSERT INTO users (email) VALUES (%s) ON CONFLICT (email) DO NOTHING", (email,)
+        )
+        return connection.execute("SELECT id FROM users WHERE email = %s", (email,)).fetchone()["id"]
 
 
 def get_user_by_email(email):
     with connect() as connection:
-        return connection.execute(
-            "SELECT id, email, password_hash FROM users WHERE email = %s", (email,)
-        ).fetchone()
+        return connection.execute("SELECT id, email FROM users WHERE email = %s", (email,)).fetchone()
 
 
 def create_login(user_id, token_hash, days):
