@@ -1015,6 +1015,118 @@ tr.hovered {
   background: var(--asphalt-up);
 }
 
+/* Fatigue: every shot's jump by its place in the session, all sessions on one chart. */
+.fatigue {
+  grid-column: 1 / -1;
+}
+
+.fatigue-totals {
+  margin-bottom: 20px;
+}
+
+/* The chart on the left (wider), what the numbers say on the right. */
+.fatigue-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 24px 48px;
+  align-items: start;
+  margin-bottom: 32px;
+}
+
+.fatigue-chart svg {
+  display: block;
+  width: 100%;
+}
+
+/* The name of the left-to-right axis, centred under the plot (which starts 52 of 640 in). */
+.fatigue-axis {
+  padding-left: 8%;
+  text-align: center;
+}
+
+/* One session: a faint line through its shots. Picking a row in the table fades the others. */
+.fatigue-session {
+  transition: opacity 150ms ease-out;
+}
+
+.fatigue-session.faded {
+  opacity: 0.2;
+}
+
+.fatigue-path {
+  fill: none;
+  stroke: var(--paint);
+  stroke-width: 1;
+  opacity: 0.25;
+}
+
+.fatigue-session.picked .fatigue-path {
+  opacity: 0.6;
+}
+
+/* The same marks as the shot tape: a filled green dot is a make, a red ring is a miss. */
+.fatigue-make {
+  fill: var(--make);
+  stroke: var(--asphalt);
+  stroke-width: 1.5;
+}
+
+.fatigue-miss {
+  fill: var(--asphalt);
+  stroke: var(--miss);
+  stroke-width: 2;
+}
+
+.fatigue-trend {
+  stroke: var(--paint);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.fatigue-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 8px;
+  font-weight: 400;
+}
+
+.fatigue-key-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fatigue-key-trend::before {
+  width: 18px;
+  height: 3px;
+  background: var(--paint);
+  content: "";
+}
+
+.fatigue-facts {
+  display: grid;
+  gap: 28px;
+  margin: 0;
+}
+
+.fatigue-facts dt {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.fatigue-facts dd {
+  max-width: 44ch;
+  margin: 0 0 6px;
+}
+
+.fatigue-facts b {
+  font-family: var(--condensed);
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
 /* Phone: one column, in reading order (video, shots, sessions, stats). */
 @media (max-width: 760px) {
   header {
@@ -1051,8 +1163,20 @@ tr.hovered {
   .working,
   .viewer,
   .tables,
-  .charts {
+  .charts,
+  .fatigue-body {
     grid-template-columns: 1fr;
+  }
+
+  /* The fatigue chart is drawn 640 wide and shrinks to fit a phone, so its text and marks
+     are drawn bigger to stay readable. */
+  .fatigue .trend-axis {
+    font-size: 18px;
+  }
+
+  .fatigue-make,
+  .fatigue-miss {
+    r: 6px;
   }
 
   .working,

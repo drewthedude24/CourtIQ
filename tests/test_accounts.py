@@ -126,6 +126,7 @@ def test_made_up_cookie_is_not_logged_in():
         ("get", "/api/sessions"),
         ("get", "/api/stats"),
         ("get", "/api/stats/form"),
+        ("get", "/api/stats/fatigue"),
         ("get", "/api/sessions/abc"),
         ("delete", "/api/sessions/abc"),
         ("get", "/api/sessions/abc/video"),

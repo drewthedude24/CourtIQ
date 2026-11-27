@@ -54,8 +54,9 @@ function isOdd(value: number, range: { average: number; spread: number }) {
 }
 
 // Two to four round numbers for the side of the chart that cover low to high, like 90, 95, 100.
-function roundTicks(low: number, high: number) {
-  const rough = (high - low || Math.abs(high) || 1) / 2;
+// A taller chart has room for more: `steps` is roughly how many gaps to aim for.
+export function roundTicks(low: number, high: number, steps = 2) {
+  const rough = (high - low || Math.abs(high) || 1) / steps;
   const power = 10 ** Math.floor(Math.log10(rough));
   const step = [1, 2, 5, 10].map((m) => m * power).find((s) => s >= rough)!;
   const first = Math.floor(low / step);

@@ -272,6 +272,23 @@ def get_form_trend(user_id):
         ).fetchall()
 
 
+def get_jump_shots(user_id):
+    # Every shot of every finished session, oldest session first and in the order the shots
+    # were taken. backend/fatigue.py fits its model from these rows.
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT sessions.id AS session_id, sessions.original_filename, sessions.created_at,
+                   shots.shot_number, shots.jump, shots.result
+            FROM sessions
+            JOIN shots ON shots.session_id = sessions.id
+            WHERE sessions.user_id = %s
+            ORDER BY sessions.created_at, shots.shot_number
+            """,
+            (user_id,),
+        ).fetchall()
+
+
 def get_stats(user_id):
     with connect() as connection:
         rows = connection.execute(
