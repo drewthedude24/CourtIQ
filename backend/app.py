@@ -18,6 +18,7 @@ from .database import (
     create_session,
     delete_session,
     get_form_trend,
+    get_jump_shots,
     get_session,
     get_stats,
     initialize_database,
@@ -26,6 +27,7 @@ from .database import (
     mark_failed,
     mark_processing,
 )
+from .fatigue import fatigue_report
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -225,6 +227,12 @@ def stats(user: User):
 @app.get("/api/stats/form")
 def form_trend(user: User):
     return get_form_trend(user["id"])
+
+
+@app.get("/api/stats/fatigue")
+def fatigue(user: User):
+    # Fitted from this user's shots on every request, so a new session changes it right away.
+    return fatigue_report(get_jump_shots(user["id"]))
 
 
 @app.get("/api/sessions/{session_id}")

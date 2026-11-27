@@ -169,6 +169,31 @@ def test_form_trend_has_one_row_per_measured_session(client, uploaded_clip):
     ]
 
 
+def test_fatigue_report_is_fitted_from_my_own_shots_only(client, ben, monkeypatch):
+    # Three clips whose jump falls by 0.01 a shot, from a different start each time.
+    starts = iter([0.30, 0.25, 0.28])
+
+    def fake_detector(input_path, output_directory, on_progress):
+        (Path(output_directory) / "annotated.mp4").write_bytes(b"fake video")
+        start = next(starts)
+        return [
+            {"result": "MAKE", "timestamp_s": float(shot),
+             "form": {**dict.fromkeys(database.FORM_NUMBERS), "jump": start - 0.01 * shot}}
+            for shot in range(6)
+        ]
+
+    monkeypatch.setattr(api, "load_vision_processor", lambda: fake_detector)
+    for _ in range(3):
+        client.post("/api/sessions", files={"file": ("clip.mov", b"fake upload", "video/quicktime")})
+
+    report = client.get("/api/stats/fatigue").json()
+
+    assert report["model"]["per_shot"] == pytest.approx(-0.01, abs=1e-6)
+    assert report["model"]["sessions"] == 3
+    assert [len(session["shots"]) for session in report["sessions"]] == [6, 6, 6]
+    assert ben.get("/api/stats/fatigue").json() == {"model": None, "sessions": [], "makes": None}
+
+
 def test_deleting_a_session_removes_only_that_session(client, uploaded_clip):
     # A second session with one miss, which must survive the delete.
     database.create_session("keep", user_id("ann@example.com"), "keep.mov", "storage/uploads/keep/input.mov")

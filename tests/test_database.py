@@ -303,3 +303,22 @@ def test_sessions_from_before_accounts_belong_to_nobody(user):
 
     assert database.list_sessions(user) == []
     assert database.get_session("old", user) is None
+
+
+def test_jump_shots_are_every_shot_of_your_sessions_oldest_session_first(user, other_user):
+    for session_id, owner, created_at, events in [
+        ("newer", user, "2026-03-02 12:00+00", [shot_with_form("MISS", jump=0.25)]),
+        ("older", user, "2026-03-01 12:00+00", [shot_with_form("MAKE", jump=0.5), shot_with_form("MISS")]),
+        ("theirs", other_user, "2026-03-01 12:00+00", [shot_with_form("MAKE", jump=0.9)]),
+    ]:
+        database.create_session(session_id, owner, f"{session_id}.mov", f"/uploads/{session_id}/input.mov")
+        run_sql("UPDATE sessions SET created_at = %s WHERE id = %s", (created_at, session_id))
+        database.mark_completed(session_id, f"/results/{session_id}/annotated.mp4", events)
+
+    rows = database.get_jump_shots(user)
+
+    assert [(row["session_id"], row["shot_number"], row["jump"], row["result"]) for row in rows] == [
+        ("older", 1, 0.5, "MAKE"), ("older", 2, None, "MISS"), ("newer", 1, 0.25, "MISS"),
+    ]
+    assert rows[0]["original_filename"] == "older.mov"
+    assert rows[0]["created_at"] == datetime(2026, 3, 1, 12, tzinfo=timezone.utc)

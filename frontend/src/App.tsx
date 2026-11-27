@@ -1,10 +1,11 @@
 import { useEffect, useState, type ChangeEvent } from "react";
+import Fatigue from "./Fatigue";
 import FormTrend from "./FormTrend";
 import Login from "./Login";
 import SessionsTable from "./SessionsTable";
 import StatsPanel from "./StatsPanel";
 import { formatPct } from "./format";
-import type { FormTrendRow, Session, SessionStatus, SessionSummary, Stats } from "./types";
+import type { FatigueReport, FormTrendRow, Session, SessionStatus, SessionSummary, Stats } from "./types";
 import { uploadVideo } from "./upload";
 import Viewer from "./Viewer";
 
@@ -20,6 +21,7 @@ export default function App() {
   const [history, setHistory] = useState<SessionSummary[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [formTrend, setFormTrend] = useState<FormTrendRow[]>([]);
+  const [fatigue, setFatigue] = useState<FatigueReport | null>(null);
 
   // Is this browser logged in? The login cookie can't be read by the page, so ask the server.
   useEffect(() => {
@@ -41,6 +43,7 @@ export default function App() {
     load("/api/sessions", setHistory);
     load("/api/stats", setStats);
     load("/api/stats/form", setFormTrend);
+    load("/api/stats/fatigue", setFatigue);
   }
 
   // Load the sessions list and stats once logged in, and again whenever the
@@ -186,6 +189,7 @@ export default function App() {
             <a href="#sessions">Sessions</a>
             <a href="#months">By month</a>
             <a href="#trend">Form over time</a>
+            <a href="#fatigue">Fatigue</a>
           </nav>
         )}
         <span className="account">
@@ -222,6 +226,7 @@ export default function App() {
           />
           <StatsPanel stats={stats} />
           <FormTrend rows={formTrend} />
+          <Fatigue report={fatigue} />
         </div>
       </main>
 

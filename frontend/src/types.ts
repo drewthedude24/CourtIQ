@@ -72,6 +72,43 @@ export type FormTrendRow = FormSummary & {
   created_at: string;
 };
 
+// GET /api/stats/fatigue: how the jump changes through a session (backend/fatigue.py).
+export type FatigueReport = {
+  // null until three sessions have at least five measured jumps each.
+  model: {
+    // The change in jump on every shot, shared by all sessions. Negative means a drop.
+    per_shot: number;
+    sessions: number;
+    // In how many sessions the last three jumps averaged lower than the first three.
+    dropped: number;
+    typical_shots: number;
+    // The average starting jump, and the change by the last shot of a typical session, in %.
+    start: number;
+    drop_pct: number;
+    // How far off the jumps of a left-out session were, with the trend and without it.
+    check: { with_trend: number; without: number };
+  } | null;
+  sessions: {
+    id: string;
+    original_filename: string;
+    created_at: string;
+    // The model's line for this session, first shot to last. null when there is no model.
+    start: number | null;
+    end: number | null;
+    // The measured average of the first three and of the last three jumps.
+    first: number;
+    last: number;
+    // Only the shots where the jump was measured.
+    shots: { shot_number: number; jump: number; result: "MAKE" | "MISS" }[];
+  }[];
+  // Makes in the first and second half of every session. clear: is the gap more than luck?
+  makes: {
+    early: { makes: number; shots: number };
+    late: { makes: number; shots: number };
+    clear: boolean;
+  } | null;
+};
+
 // One row of GET /api/sessions. shooting_pct is null when a session has no shots.
 export type SessionSummary = {
   id: string;
