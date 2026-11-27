@@ -1,5 +1,7 @@
 # Stage 1 builds the React page into static files. Node stays out of the final image.
-FROM node:22-slim AS frontend
+# The files are the same on any chip, so this stage runs on the building machine's own chip.
+# Emulated as Intel on the Mac, `npm run build` crashed (exit 139).
+FROM --platform=$BUILDPLATFORM node:22-slim AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci

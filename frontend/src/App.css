@@ -214,6 +214,56 @@ nav a:hover {
   cursor: not-allowed;
 }
 
+/* The logged-in email and the Log out button, in the header. */
+.account {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+/* The login form (Login.tsx). Each field is court-deep with a painted line under it. */
+.login {
+  display: grid;
+  gap: 16px;
+  max-width: 360px;
+  margin: 24px 0 12px;
+}
+
+.login label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.login input {
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 2px solid var(--paint);
+  border-radius: 2px 2px 0 0;
+  color: var(--paint);
+  background: var(--court-deep);
+  font: inherit;
+  font-size: 1rem;
+}
+
+/* The orange button is usually a label; here it is a real button. */
+button.button {
+  justify-self: start;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+}
+
+.login-error {
+  color: var(--flag);
+  font-weight: 600;
+}
+
 main {
   display: grid;
   gap: 48px;
@@ -971,6 +1021,12 @@ tr.hovered {
     flex-wrap: wrap;
     gap: 10px 16px;
     padding: 12px 16px;
+  }
+
+  /* The email and Log out get their own row under the logo and button. */
+  .account {
+    order: 2;
+    width: 100%;
   }
 
   /* The section links drop to their own row under the logo and button. */

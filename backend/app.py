@@ -4,13 +4,15 @@ import traceback
 from datetime import date
 from pathlib import Path
 from threading import Lock
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .accounts import current_user, router as accounts_router
 from .database import (
     FORM_NUMBERS,
     create_session,
@@ -38,6 +40,10 @@ WEB_FULL_IMAGE_SIZE = 640
 # instead of blowing them up to 640, which cost more than the full frame.
 WEB_FOCUS_IMAGE_SIZE = 448
 WEB_CONFIDENCE_THRESHOLD = 0.12
+# Sent with every video and picture. "private": no shared cache may keep it. "no-cache": the
+# browser asks the server again before reusing its copy, so the login check runs every time,
+# and the next person on the same browser never gets a copy the last one loaded.
+PRIVATE_FILE = {"Cache-Control": "private, no-cache"}
 
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 RESULT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -51,6 +57,10 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.include_router(accounts_router)
+
+# Add `user: User` to a route and it answers 401 unless the browser is logged in.
+User = Annotated[dict, Depends(current_user)]
 
 vision_lock = Lock()
 process_video = None
@@ -81,9 +91,15 @@ def load_vision_processor():
     return process_video
 
 
-def form_picture(session_id, shot_number, name):
+def session_folder(root, user_id, session_id):
+    """Each person's files live in their own folder: storage/uploads/<user id>/<session id>/."""
+    return root / str(user_id) / session_id
+
+
+def form_picture(session, shot_number, name):
     """Where a shot's picture for one form number is saved (vision/form_pictures.py)."""
-    return RESULT_ROOT / session_id / "form" / f"{shot_number}_{name}.jpg"
+    folder = session_folder(RESULT_ROOT, session["user_id"], session["id"])
+    return folder / "form" / f"{shot_number}_{name}.jpg"
 
 
 def public_session(session):
@@ -106,7 +122,7 @@ def public_session(session):
             {**shot, "pictures": {
                 name: f"/api/sessions/{session['id']}/shots/{shot['shot_number']}/form/{name}.jpg"
                 for name in FORM_NUMBERS
-                if form_picture(session["id"], shot["shot_number"], name).exists()
+                if form_picture(session, shot["shot_number"], name).exists()
             }}
             for shot in session["shots"]
         ],
@@ -143,7 +159,7 @@ def health():
 
 
 @app.post("/api/sessions", status_code=202)
-async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
+async def upload_video(file: UploadFile, background_tasks: BackgroundTasks, user: User):
     original_filename = file.filename or "upload.mp4"
     extension = Path(original_filename).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
@@ -153,8 +169,8 @@ async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
         )
 
     session_id = uuid4().hex
-    upload_directory = UPLOAD_ROOT / session_id
-    output_directory = RESULT_ROOT / session_id
+    upload_directory = session_folder(UPLOAD_ROOT, user["id"], session_id)
+    output_directory = session_folder(RESULT_ROOT, user["id"], session_id)
     upload_directory.mkdir(parents=True, exist_ok=False)
     output_directory.mkdir(parents=True, exist_ok=False)
     input_path = upload_directory / f"input{extension}"
@@ -179,59 +195,59 @@ async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
 
     # Save paths relative to the project, so they still work when the project folder
     # lives somewhere else (/app inside Docker, a different folder on EC2).
-    create_session(session_id, original_filename, input_path.relative_to(PROJECT_ROOT))
+    create_session(session_id, user["id"], original_filename, input_path.relative_to(PROJECT_ROOT))
     background_tasks.add_task(
         run_processing_job,
         session_id,
         input_path,
         output_directory,
     )
-    return public_session(get_session(session_id))
+    return public_session(get_session(session_id, user["id"]))
 
 
 @app.get("/api/sessions")
-def sessions_list(month: str | None = None):
+def sessions_list(user: User, month: str | None = None):
     # `month` looks like "2026-03". Without it, every session is listed.
     if month is None:
-        return list_sessions()
+        return list_sessions(user["id"])
     try:
         first_day = date.fromisoformat(f"{month}-01")
     except ValueError:
         raise HTTPException(status_code=400, detail="month must look like 2026-03")
-    return list_sessions(month=first_day)
+    return list_sessions(user["id"], month=first_day)
 
 
 @app.get("/api/stats")
-def stats():
-    return get_stats()
+def stats(user: User):
+    return get_stats(user["id"])
 
 
 @app.get("/api/stats/form")
-def form_trend():
-    return get_form_trend()
+def form_trend(user: User):
+    return get_form_trend(user["id"])
 
 
 @app.get("/api/sessions/{session_id}")
-def session_status(session_id: str):
-    session = get_session(session_id)
+def session_status(session_id: str, user: User):
+    session = get_session(session_id, user["id"])
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return public_session(session)
 
 
 @app.delete("/api/sessions/{session_id}", status_code=204)
-def remove_session(session_id: str):
-    # The database check comes first, so only a real session id (never something
-    # like "../..") is ever used to build a folder path to delete.
-    if not delete_session(session_id):
+def remove_session(session_id: str, user: User):
+    # The database check comes first, so only a real session id of this user (never
+    # something like "../..", never someone else's) is used to build a folder path to delete.
+    if not delete_session(session_id, user["id"]):
         raise HTTPException(status_code=404, detail="Session not found")
-    shutil.rmtree(UPLOAD_ROOT / session_id, ignore_errors=True)
-    shutil.rmtree(RESULT_ROOT / session_id, ignore_errors=True)
+    shutil.rmtree(session_folder(UPLOAD_ROOT, user["id"], session_id), ignore_errors=True)
+    shutil.rmtree(session_folder(RESULT_ROOT, user["id"], session_id), ignore_errors=True)
 
 
 @app.get("/api/sessions/{session_id}/video")
-def session_video(session_id: str, download: bool = False):
-    session = get_session(session_id)
+def session_video(session_id: str, user: User, download: bool = False):
+    session = get_session(session_id, user["id"])
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     if session["status"] != "COMPLETED" or not session["output_path"]:
@@ -242,19 +258,20 @@ def session_video(session_id: str, download: bool = False):
         raise HTTPException(status_code=404, detail="Processed video file is missing")
 
     filename = f"courtiq-{session_id}.mp4" if download else None
-    return FileResponse(output_path, media_type="video/mp4", filename=filename)
+    return FileResponse(output_path, media_type="video/mp4", filename=filename, headers=PRIVATE_FILE)
 
 
 @app.get("/api/sessions/{session_id}/shots/{shot_number}/form/{name}.jpg")
-def form_picture_file(session_id: str, shot_number: int, name: str):
-    # Checking both first means only a real session id and a real form number (never
-    # something like "../..") are used to build the file path.
-    if name not in FORM_NUMBERS or get_session(session_id) is None:
+def form_picture_file(session_id: str, shot_number: int, name: str, user: User):
+    # Checking both first means only this user's real session and a real form number
+    # (never something like "../..") are used to build the file path.
+    session = get_session(session_id, user["id"])
+    if name not in FORM_NUMBERS or session is None:
         raise HTTPException(status_code=404, detail="Picture not found")
-    path = form_picture(session_id, shot_number, name)
+    path = form_picture(session, shot_number, name)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Picture not found")
-    return FileResponse(path, media_type="image/jpeg")
+    return FileResponse(path, media_type="image/jpeg", headers=PRIVATE_FILE)
 
 
 # The built React page (`npm run build`). Mounted last so the /api routes above match first.

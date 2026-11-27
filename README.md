@@ -114,6 +114,6 @@ Setting up AWS from scratch, every command I ran, and what it costs are in
 
 ## Known limits
 
-- The site is plain HTTP, and there are no accounts, so anyone with the link can delete a session.
+- The site is plain HTTP, so the login cookie isn't protected on public Wi-Fi (`docs/deploy.md`, section 9).
 - The clips are all filmed from behind the shooter. Other angles haven't been tested.
 - The server has 2 CPUs, so the same 47 second clip takes about 3.5 minutes there.
