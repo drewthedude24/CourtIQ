@@ -48,14 +48,66 @@ def initialize_database():
         connection.execute(SCHEMA_PATH.read_text())
 
 
-def create_session(session_id, original_filename, input_path):
+def create_user(email, password_hash):
+    # Returns the new user's id, or None when that email already has an account.
+    with connect() as connection:
+        row = connection.execute(
+            """
+            INSERT INTO users (email, password_hash) VALUES (%s, %s)
+            ON CONFLICT (email) DO NOTHING
+            RETURNING id
+            """,
+            (email, password_hash),
+        ).fetchone()
+    return None if row is None else row["id"]
+
+
+def get_user_by_email(email):
+    with connect() as connection:
+        return connection.execute(
+            "SELECT id, email, password_hash FROM users WHERE email = %s", (email,)
+        ).fetchone()
+
+
+def create_login(user_id, token_hash, days):
     with connect() as connection:
         connection.execute(
             """
-            INSERT INTO sessions (id, original_filename, input_path, status)
-            VALUES (%s, %s, %s, 'QUEUED')
+            INSERT INTO login_sessions (token_hash, user_id, expires_at)
+            VALUES (%s, %s, now() + make_interval(days => %s))
             """,
-            (session_id, original_filename, str(input_path)),
+            (token_hash, user_id, days),
+        )
+
+
+def get_login_user(token_hash):
+    # The user a browser's login belongs to, or None if it was never made, has expired,
+    # or was logged out.
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT users.id, users.email
+            FROM login_sessions
+            JOIN users ON users.id = login_sessions.user_id
+            WHERE login_sessions.token_hash = %s AND login_sessions.expires_at > now()
+            """,
+            (token_hash,),
+        ).fetchone()
+
+
+def delete_login(token_hash):
+    with connect() as connection:
+        connection.execute("DELETE FROM login_sessions WHERE token_hash = %s", (token_hash,))
+
+
+def create_session(session_id, user_id, original_filename, input_path):
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sessions (id, user_id, original_filename, input_path, status)
+            VALUES (%s, %s, %s, %s, 'QUEUED')
+            """,
+            (session_id, user_id, original_filename, str(input_path)),
         )
 
 
@@ -114,18 +166,20 @@ def mark_failed(session_id, error_message):
         )
 
 
-def delete_session(session_id):
+def delete_session(session_id, user_id):
     # Its shots go too: their foreign key has ON DELETE CASCADE (db/schema.sql).
-    # Returns False when there was no such session.
+    # Returns False when this user has no such session.
     with connect() as connection:
         deleted = connection.execute(
-            "DELETE FROM sessions WHERE id = %s RETURNING id", (session_id,)
+            "DELETE FROM sessions WHERE id = %s AND user_id = %s RETURNING id",
+            (session_id, user_id),
         ).fetchone()
         connection.execute("REFRESH MATERIALIZED VIEW monthly_stats")
     return deleted is not None
 
 
-def get_session(session_id):
+def get_session(session_id, user_id):
+    # None when this user has no such session, even if someone else does.
     with connect() as connection:
         session = connection.execute(
             """
@@ -134,10 +188,10 @@ def get_session(session_id):
                    count(shots.id) FILTER (WHERE shots.result = 'MISS') AS misses
             FROM sessions
             LEFT JOIN shots ON shots.session_id = sessions.id
-            WHERE sessions.id = %s
+            WHERE sessions.id = %s AND sessions.user_id = %s
             GROUP BY sessions.id
             """,
-            (session_id,),
+            (session_id, user_id),
         ).fetchone()
         if session is None:
             return None
@@ -175,7 +229,7 @@ def get_session(session_id):
     return session
 
 
-def list_sessions(month=None):
+def list_sessions(user_id, month=None):
     # `month` is the first day of a month (a date), or None for every session.
     # Counting shots.result, not shots.id, lets Postgres read only the
     # shots (session_id, result) index (see docs/query-optimization.md).
@@ -190,17 +244,18 @@ def list_sessions(month=None):
                          / nullif(count(shots.result), 0), 1)::float AS shooting_pct
             FROM sessions
             LEFT JOIN shots ON shots.session_id = sessions.id
-            WHERE %(month)s::date IS NULL
-               OR (sessions.created_at >= %(month)s::date
-                   AND sessions.created_at < %(month)s::date + interval '1 month')
+            WHERE sessions.user_id = %(user_id)s
+              AND (%(month)s::date IS NULL
+                   OR (sessions.created_at >= %(month)s::date
+                       AND sessions.created_at < %(month)s::date + interval '1 month'))
             GROUP BY sessions.id
             ORDER BY sessions.created_at DESC
             """,
-            {"month": month},
+            {"user_id": user_id, "month": month},
         ).fetchall()
 
 
-def get_form_trend():
+def get_form_trend(user_id):
     # Each session's average form numbers, oldest first, to see them change over time.
     # The spread says how much a number changed from shot to shot inside the session, so a
     # gap between two sessions can be compared with it.
@@ -213,16 +268,18 @@ def get_form_trend():
                    {FORM_AGGREGATES}
             FROM sessions
             JOIN shots ON shots.session_id = sessions.id
+            WHERE sessions.user_id = %s
             GROUP BY sessions.id
             -- Every measured shot has a flight time, so this leaves out sessions
             -- that were processed before form was measured.
             HAVING count(shots.flight_time_s) > 0
             ORDER BY sessions.created_at
-            """
+            """,
+            (user_id,),
         ).fetchall()
 
 
-def get_stats():
+def get_stats(user_id):
     with connect() as connection:
         rows = connection.execute(
             """
@@ -232,9 +289,11 @@ def get_stats():
                    round(100.0 * sum(makes) / nullif(sum(makes + misses), 0), 1)::float
                        AS shooting_pct
             FROM monthly_stats
+            WHERE user_id = %s
             GROUP BY ROLLUP (month)
             ORDER BY month NULLS LAST
-            """
+            """,
+            (user_id,),
         ).fetchall()
 
     # ROLLUP adds one extra row for all months together. Its month is NULL, so it sorts last.

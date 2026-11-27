@@ -145,6 +145,9 @@ JOIN sessions ON sessions.id = shots.session_id
 GROUP BY 1;
 ```
 
+Since accounts were added, the view also groups by `user_id` and `get_stats()` reads one
+person's rows. The timings here were measured before that, with one person's worth of data.
+
 `get_stats()` now reads its 12 rows instead of 1M shots:
 
 ```

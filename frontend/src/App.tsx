@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import FormTrend from "./FormTrend";
+import Login from "./Login";
 import SessionsTable from "./SessionsTable";
 import StatsPanel from "./StatsPanel";
 import { formatPct } from "./format";
@@ -10,6 +11,8 @@ import Viewer from "./Viewer";
 const PENDING_STATUSES = new Set<SessionStatus>(["QUEUED", "PROCESSING"]);
 
 export default function App() {
+  // The logged-in email, null when logged out, undefined until the server has answered.
+  const [account, setAccount] = useState<string | null | undefined>(undefined);
   const [session, setSession] = useState<Session | null>(null);
   // The file being sent, and how many of its bytes have gone out. null when nothing is uploading.
   const [upload, setUpload] = useState<{ name: string; sent: number; total: number } | null>(null);
@@ -18,17 +21,33 @@ export default function App() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [formTrend, setFormTrend] = useState<FormTrendRow[]>([]);
 
-  function loadTables() {
-    fetch("/api/sessions").then((response) => response.json()).then(setHistory);
-    fetch("/api/stats").then((response) => response.json()).then(setStats);
-    fetch("/api/stats/form").then((response) => response.json()).then(setFormTrend);
+  // Is this browser logged in? The login cookie can't be read by the page, so ask the server.
+  useEffect(() => {
+    fetch("/api/me")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((me) => setAccount(me ? me.email : null))
+      .catch(() => setAccount(null));
+  }, []);
+
+  // Reads one API answer into state. A 401 means the login has ended (logged out in another
+  // tab, or 30 days passed), so the login page shows again.
+  async function load<T>(url: string, set: (value: T) => void) {
+    const response = await fetch(url);
+    if (response.status === 401) setAccount(null);
+    else if (response.ok) set(await response.json());
   }
 
-  // Load the sessions list and stats when the page opens, and again whenever the
+  function loadTables() {
+    load("/api/sessions", setHistory);
+    load("/api/stats", setStats);
+    load("/api/stats/form", setFormTrend);
+  }
+
+  // Load the sessions list and stats once logged in, and again whenever the
   // current upload changes status (so a finished upload shows up in both tables).
   useEffect(() => {
-    loadTables();
-  }, [session?.status]);
+    if (account) loadTables();
+  }, [account, session?.status]);
 
   useEffect(() => {
     if (!session || !PENDING_STATUSES.has(session.status)) return undefined;
@@ -110,6 +129,17 @@ export default function App() {
     }
   }
 
+  function loggedIn(email: string) {
+    setSession(null); // Never keep a session open from whoever was logged in before.
+    setAccount(email);
+  }
+
+  async function logOut() {
+    await fetch("/api/logout", { method: "POST" });
+    // A fresh page drops everything the last account had loaded.
+    window.location.reload();
+  }
+
   const working = upload !== null || (session !== null && PENDING_STATUSES.has(session.status));
 
   // The upload button. The real file input is hidden and the label opens it.
@@ -125,6 +155,25 @@ export default function App() {
     </label>
   );
 
+  if (account === undefined) return null; // Asking the server, which takes a moment.
+
+  if (account === null) {
+    return (
+      <>
+        <header>
+          <a className="brand" href="/" aria-label="CourtIQ, home">
+            <Mark />
+            <h1>Court<b>IQ</b></h1>
+          </a>
+        </header>
+        <main>
+          <Login onLoggedIn={loggedIn} />
+        </main>
+        <Credit />
+      </>
+    );
+  }
+
   return (
     <>
       <header>
@@ -139,6 +188,10 @@ export default function App() {
             <a href="#trend">Form over time</a>
           </nav>
         )}
+        <span className="account">
+          {account}
+          <button className="text-button" type="button" onClick={logOut}>Log out</button>
+        </span>
         {uploadButton("Upload video")}
       </header>
 
@@ -172,14 +225,20 @@ export default function App() {
         </div>
       </main>
 
-      {/* The photo's licence (CC BY-SA 4.0) asks for the photographer's name, a link, and a note
-          that the picture was changed. */}
-      <footer>
-        Photo of Breanna Stewart by{" "}
-        <a href="https://commons.wikimedia.org/wiki/File:260927_Lynx_Liberty_JohnMc90_(55555504475).jpg">John McClellan</a>,{" "}
-        <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, cropped.
-      </footer>
+      <Credit />
     </>
+  );
+}
+
+// The photo's licence (CC BY-SA 4.0) asks for the photographer's name, a link, and a note
+// that the picture was changed. Both the welcome and the login panel show the photo.
+function Credit() {
+  return (
+    <footer>
+      Photo of Breanna Stewart by{" "}
+      <a href="https://commons.wikimedia.org/wiki/File:260927_Lynx_Liberty_JohnMc90_(55555504475).jpg">John McClellan</a>,{" "}
+      <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, cropped.
+    </footer>
   );
 }
 

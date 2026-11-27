@@ -16,6 +16,7 @@ runs*/
 courtiq_temp.db
 storage/uploads/*/
 storage/results/*/
+storage/test/
 
 # Frontend build
 frontend/node_modules/

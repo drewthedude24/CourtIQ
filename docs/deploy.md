@@ -212,6 +212,31 @@ server. Note that "a command" means any shell command, as root, on that server.
 
 The deploy job fails if the server is stopped (section 7). The tests still run.
 
+## 9. Accounts
+
+People sign up with an email and a password (`backend/accounts.py`). Nothing new to set up on
+AWS: there is no secret key, because a login is a random token whose hash is a row in the
+`login_sessions` table in RDS. The tables are added by `db/schema.sql` at startup, like the rest.
+
+The cookie can't be marked "https only" while the site is plain http on an IP, so on public
+Wi-Fi someone could copy it. It switches to https-only by itself once the site is on https.
+
+### Giving the sessions from before accounts to their owner (one time)
+
+After the first deploy with accounts, the old sessions in RDS have no owner, so nobody sees
+them. Sign up on the live site, then run this, with the email you signed up with. It hands
+every ownerless session to that account and moves its files into that account's folder.
+
+```bash
+aws ssm send-command --instance-ids <instance> --document-name AWS-RunShellScript \
+  --parameters 'commands=["docker exec courtiq python -m backend.give_old_sessions <your email>"]' \
+  --query Command.CommandId --output text
+aws ssm get-command-invocation --command-id <command id> --instance-id <instance> \
+  --query StandardOutputContent --output text     # "Gave N sessions to <your email>."
+```
+
+Running it again later is safe: it only touches sessions that still have no owner.
+
 ## Gotchas found while deploying
 
 - **OpenVINO precision.** The server's CPU (Xeon 8488C) has AMX, and OpenVINO then runs in
