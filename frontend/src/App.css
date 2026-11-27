@@ -829,9 +829,10 @@ tr.selected .clip button {
 
 .charts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 32px 40px;
-  margin-bottom: 24px;
+  /* Three across on a laptop, fewer on a narrow screen, so chart text never shrinks below about 11px. */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 40px 48px;
+  margin-bottom: 32px;
 }
 
 figure {
@@ -843,49 +844,125 @@ figcaption {
   font-weight: 600;
 }
 
-figure svg {
+/* The header of a chart: the name, the big value with its change, and which session it is. */
+.trend figcaption {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.trend-now {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.trend-now b {
+  font-family: var(--condensed);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.trend-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.trend-arrow {
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  color: var(--paint);
+  fill: currentColor;
+}
+
+/* Shooting % only: up is more makes, down is more misses. */
+.trend-change.up .trend-arrow {
+  color: var(--make);
+}
+
+.trend-change.down .trend-arrow {
+  color: var(--miss);
+}
+
+/* Which session the big numbers belong to, once for all the charts. */
+.trend-showing {
+  margin-bottom: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend svg {
   display: block;
   width: 100%;
-  max-width: 360px;
-  border-bottom: 2px solid var(--paint);
 }
 
-.trend-line {
-  fill: none;
+.trend-grid {
   stroke: var(--paint);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-width: 1;
+  opacity: 0.1;
 }
 
-.trend-spread {
-  stroke: var(--muted);
+.trend-axis {
+  fill: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The usual range: a faint wash of line paint, with the all-time average through it. */
+.trend-band {
+  fill: var(--paint);
+  opacity: 0.07;
+}
+
+.trend-average {
+  stroke: var(--paint);
+  stroke-width: 1;
+  opacity: 0.4;
+}
+
+.trend-cursor {
+  stroke: var(--paint-dim);
   stroke-width: 1;
 }
 
-/* The ring in the ground colour keeps a dot readable where it sits on the line or a bar. */
+.trend-line {
+  stroke: var(--paint);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.trend-line.up {
+  stroke: var(--make);
+}
+
+.trend-line.down {
+  stroke: var(--miss);
+}
+
+/* The ring in the ground colour keeps a dot readable where it sits on a line. */
 .trend-dot {
   fill: var(--paint);
   stroke: var(--asphalt);
   stroke-width: 2;
+  transition: r 150ms ease-out;
 }
 
-.trend-value,
-.trend-name {
-  font-size: 9.5px;
-  font-variant-numeric: tabular-nums;
+/* A session that moved more than the usual shot-to-shot spread. */
+.trend-odd {
+  fill: none;
+  stroke: var(--flag);
+  stroke-width: 2;
 }
 
-/* The outline in the ground colour keeps a value readable where it crosses the line. */
-.trend-value {
-  fill: var(--paint);
-  stroke: var(--asphalt);
-  stroke-width: 3px;
-  paint-order: stroke;
-}
-
-.trend-name {
-  fill: var(--muted);
+tr.hovered {
+  background: var(--asphalt-up);
 }
 
 /* Phone: one column, in reading order (video, shots, sessions, stats). */
