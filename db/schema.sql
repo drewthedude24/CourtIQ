@@ -10,13 +10,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     error_message     text
 );
 
--- People with an account. The password is stored only as an argon2 hash (backend/accounts.py).
+-- People with an account. An account is just an email, with no password (backend/accounts.py).
 CREATE TABLE IF NOT EXISTS users (
-    id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    email         text NOT NULL UNIQUE,
-    password_hash text NOT NULL,
-    created_at    timestamptz NOT NULL DEFAULT now()
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email      text NOT NULL UNIQUE,
+    created_at timestamptz NOT NULL DEFAULT now()
 );
+-- The first accounts version also kept a password hash. RDS ran it, so this removes it there.
+ALTER TABLE users DROP COLUMN IF EXISTS password_hash;
 
 -- One row per logged-in browser. The browser holds a random token in a cookie and this
 -- table holds only its SHA-256 hash. Logging out deletes the row. Named login_sessions
