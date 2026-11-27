@@ -17,9 +17,9 @@ def empty_database():
         connection.execute("TRUNCATE sessions, shots, users, login_sessions")
 
 
-def sign_up(email):
+def log_in(email):
     browser = TestClient(app)
-    browser.post("/api/signup", json={"email": email, "password": "correct horse"})
+    browser.post("/api/login", json={"email": email})
     return browser
 
 
@@ -42,7 +42,7 @@ def make_old_session(session_id):
 
 
 def test_old_sessions_become_yours_with_their_files_in_your_folder():
-    andrew = sign_up("andrew@example.com")
+    andrew = log_in("andrew@example.com")
     make_old_session("old1")
     make_old_session("old2")
 
@@ -58,8 +58,8 @@ def test_old_sessions_become_yours_with_their_files_in_your_folder():
 
 
 def test_sessions_that_already_have_an_owner_are_left_alone():
-    sign_up("andrew@example.com")
-    ben = sign_up("ben@example.com")
+    log_in("andrew@example.com")
+    ben = log_in("ben@example.com")
     ben_id = database.get_user_by_email("ben@example.com")["id"]
     database.create_session("bens", ben_id, "b.mov", f"storage/test/uploads/{ben_id}/bens/input.mov")
 
