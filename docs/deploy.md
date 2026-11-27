@@ -214,7 +214,8 @@ The deploy job fails if the server is stopped (section 7). The tests still run.
 
 ## 9. Accounts
 
-People sign up with an email and a password (`backend/accounts.py`). Nothing new to set up on
+People log in with just an email, no password (`backend/accounts.py`). A new email makes a new
+account, so anyone who knows an email can log in as that person. Nothing new to set up on
 AWS: there is no secret key, because a login is a random token whose hash is a row in the
 `login_sessions` table in RDS. The tables are added by `db/schema.sql` at startup, like the rest.
 
@@ -224,7 +225,7 @@ Wi-Fi someone could copy it. It switches to https-only by itself once the site i
 ### Giving the sessions from before accounts to their owner (one time)
 
 After the first deploy with accounts, the old sessions in RDS have no owner, so nobody sees
-them. Sign up on the live site, then run this, with the email you signed up with. It hands
+them. Log in on the live site once, then run this, with the email you logged in with. It hands
 every ownerless session to that account and moves its files into that account's folder.
 
 ```bash

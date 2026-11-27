@@ -6,8 +6,6 @@ ultralytics>=8.3,<9
 mediapipe>=1.2,<2
 # Used by the pose model's person tracker. Without it Ultralytics installs it at runtime.
 psycopg[binary]>=3.2,<4
-# Hashes passwords for accounts (backend/accounts.py).
-argon2-cffi>=25,<26
 pytest>=8,<9
 httpx>=0.28,<1
 # Draws the text on the annotated video (vision/overlay.py). Ultralytics installs it too.

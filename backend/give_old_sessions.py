@@ -19,7 +19,7 @@ def give_old_sessions(email):
     """Returns how many sessions were handed over."""
     user = database.get_user_by_email(email.strip().lower())
     if user is None:
-        raise SystemExit(f"No account for {email}. Sign up on the site first.")
+        raise SystemExit(f"No account for {email}. Log in on the site with it first.")
 
     # One transaction: if moving a folder fails, no row changes owner. Folders already moved
     # are skipped on the next run, since only their new place exists then.
