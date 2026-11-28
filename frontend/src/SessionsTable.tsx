@@ -10,9 +10,11 @@ type Props = {
   disabled: boolean;
   onSelect: (id: string) => void;
   onDelete: (row: SessionSummary) => void;
+  // Show each session's number (oldest is 1), as Studio's picker and charts call them.
+  numbered?: boolean;
 };
 
-export default function SessionsTable({ sessions, selectedId, disabled, onSelect, onDelete }: Props) {
+export default function SessionsTable({ sessions, selectedId, disabled, onSelect, onDelete, numbered = false }: Props) {
   return (
     <section id="sessions">
       <h2>Your sessions</h2>
@@ -23,6 +25,7 @@ export default function SessionsTable({ sessions, selectedId, disabled, onSelect
         <table>
           <thead>
             <tr>
+              {numbered && <th className="num">#</th>}
               <th>Clip</th>
               <th className="wide-only">Date</th>
               <th className="num">Makes</th>
@@ -32,7 +35,7 @@ export default function SessionsTable({ sessions, selectedId, disabled, onSelect
             </tr>
           </thead>
           <tbody>
-            {sessions.map((row) => {
+            {sessions.map((row, index) => {
               // A finished session opens its video, a running one its progress, a failed one its error.
               const canOpen = !disabled;
               const done = row.status === "COMPLETED";
@@ -45,6 +48,7 @@ export default function SessionsTable({ sessions, selectedId, disabled, onSelect
                   className={classes.filter(Boolean).join(" ")}
                   onClick={canOpen ? () => onSelect(row.id) : undefined}
                 >
+                  {numbered && <td className="num">{sessions.length - index}</td>}
                   <td className="clip">
                     {canOpen ? <button type="button">{row.original_filename}</button> : row.original_filename}
                   </td>

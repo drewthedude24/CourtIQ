@@ -3,7 +3,7 @@ import FormTable from "../FormTable";
 import FormTrend from "../FormTrend";
 import Login from "../Login";
 import SessionsTable from "../SessionsTable";
-import { formatDate } from "../format";
+import { formatDate, formatPct } from "../format";
 import type { FormTrendRow, Session, SessionStatus, SessionSummary, Shot } from "../types";
 import { uploadVideo } from "../upload";
 import Analysis from "./Analysis";
@@ -156,6 +156,26 @@ export default function Studio() {
 
   const working = upload !== null || (session !== null && PENDING_STATUSES.has(session.status));
 
+  // Session numbers count every upload, oldest is 1, the same on every tab.
+  const numbers = new Map(history.map((row, index) => [row.id, history.length - index]));
+
+  // Picks the open session. On the Dashboard and Shot review, which both show one session.
+  const picker = history.length > 0 && (
+    <select
+      aria-label="Session"
+      value={session?.id ?? ""}
+      disabled={working}
+      onChange={(event) => openSession(event.target.value)}
+    >
+      {!session && <option value="">Pick a session</option>}
+      {history.map((row) => (
+        <option key={row.id} value={row.id}>
+          Session {numbers.get(row.id)} · {row.original_filename} · {formatDate(row.created_at)}
+        </option>
+      ))}
+    </select>
+  );
+
   // The real file input is hidden and the label opens it.
   const uploadButton = (
     <label className={working ? "button disabled" : "button"}>
@@ -218,31 +238,11 @@ export default function Studio() {
             <header className="page-head">
               <h1>Session analysis</h1>
               <div className="page-actions">
-                {history.length > 0 && (
-                  <select
-                    aria-label="Session"
-                    value={session?.id ?? ""}
-                    disabled={working}
-                    onChange={(event) => openSession(event.target.value)}
-                  >
-                    {!session && <option value="">Pick a session</option>}
-                    {history.map((row, index) => (
-                      <option key={row.id} value={row.id}>
-                        Session {history.length - index} · {row.original_filename} · {formatDate(row.created_at)}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                {picker}
                 {uploadButton}
               </div>
             </header>
             <Analysis session={session} upload={upload} failed={failed} request={request} hasHistory={history.length > 0} />
-            {history.length > 1 && (
-              <section className="block">
-                <h2>Progress</h2>
-                <ProgressChart sessions={history} openId={session?.id} onOpen={openSession} />
-              </section>
-            )}
           </>
         )}
 
@@ -252,7 +252,9 @@ export default function Studio() {
               <h1>Sessions</h1>
               <div className="page-actions">{uploadButton}</div>
             </header>
+            <Totals sessions={history} numbers={numbers} />
             <SessionsTable
+              numbered
               sessions={history}
               selectedId={session?.id}
               disabled={working}
@@ -266,7 +268,7 @@ export default function Studio() {
           <>
             <header className="page-head">
               <h1>Shot review</h1>
-              {session && <p className="detail">{session.original_filename} · {formatDate(session.created_at)}</p>}
+              <div className="page-actions">{picker}</div>
             </header>
             {session?.status === "COMPLETED" ? (
               <FormTable
@@ -275,7 +277,7 @@ export default function Studio() {
                 picked={request?.sessionId === session.id ? request.shot.shot_number : null}
               />
             ) : (
-              <p className="detail">Open a finished session on the Dashboard to see every shot here.</p>
+              <p className="detail">Pick a finished session above to see every shot.</p>
             )}
           </>
         )}
@@ -293,13 +295,47 @@ export default function Studio() {
             ) : (
               <p className="detail">Upload a clip to start tracking your progress.</p>
             )}
-            <FormTrend rows={formTrend} />
+            {/* Field goal % is the chart above, so the form charts leave it out. */}
+            <FormTrend rows={formTrend} shooting={false} />
           </>
         )}
 
-        {tab === "ml" && <MlTab />}
+        {tab === "ml" && <MlTab numbers={numbers} />}
       </main>
     </div>
+  );
+}
+
+// Every finished session added up, above the list of sessions.
+function Totals({ sessions, numbers }: { sessions: SessionSummary[]; numbers: Map<string, number> }) {
+  const done = sessions.filter((row) => row.status === "COMPLETED" && row.shooting_pct !== null);
+  if (done.length === 0) return null;
+  const makes = done.reduce((sum, row) => sum + row.makes, 0);
+  const attempts = done.reduce((sum, row) => sum + row.makes + row.misses, 0);
+  // The highest field goal %. On a tie, the newest, since the list is newest first.
+  const best = done.reduce((top, row) => (row.shooting_pct! > top.shooting_pct! ? row : top));
+  return (
+    <dl className="scoreboard">
+      <div>
+        <dt>Sessions</dt>
+        <dd>{done.length}</dd>
+      </div>
+      <div>
+        <dt>Shot attempts</dt>
+        <dd>{attempts}</dd>
+      </div>
+      <div>
+        <dt>Field goal %, all sessions</dt>
+        <dd>{formatPct(Math.round((1000 * makes) / attempts) / 10)}</dd>
+      </div>
+      <div>
+        <dt>Best session</dt>
+        <dd>
+          {formatPct(best.shooting_pct)}
+          <small> session {numbers.get(best.id)}</small>
+        </dd>
+      </div>
+    </dl>
   );
 }
 
