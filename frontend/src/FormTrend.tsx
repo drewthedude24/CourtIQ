@@ -191,7 +191,8 @@ function TrendChart({ rows, label, value, shots, spread, print, shooting, hovere
 }
 
 // Each session's average form numbers, oldest first, to see them change over time.
-export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
+// `shooting` false leaves out shooting %, for a page that already charts it.
+export default function FormTrend({ rows, shooting = true }: { rows: FormTrendRow[]; shooting?: boolean }) {
   const [hovered, setHovered] = useState<number | null>(null);
   if (rows.length === 0) return null;
 
@@ -210,7 +211,7 @@ export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
         {formatDate(rows[hovered ?? rows.length - 1].created_at)}
       </p>
       <div className="charts">
-        <TrendChart
+        {shooting && <TrendChart
           rows={rows}
           label="Shooting %"
           value={(row) => row.shooting_pct}
@@ -220,7 +221,7 @@ export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
           shooting
           hovered={hovered}
           onHover={setHovered}
-        />
+        />}
         {FORM_COLUMNS.map((column) => (
           <TrendChart
             key={column.key}
@@ -241,7 +242,7 @@ export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
             <th className="num">#</th>
             <th>Clip</th>
             <th className="wide-only">Date</th>
-            <th className="num wide-only">Shooting %</th>
+            {shooting && <th className="num wide-only">Shooting %</th>}
             {FORM_COLUMNS.map((column) => (
               <th key={column.key} className="num">{column.label}</th>
             ))}
@@ -258,7 +259,7 @@ export default function FormTrend({ rows }: { rows: FormTrendRow[] }) {
               <td className="num">{index + 1}</td>
               <td className="clip">{row.original_filename}</td>
               <td className="wide-only">{formatDate(row.created_at)}</td>
-              <td className="num wide-only">{formatPct(row.shooting_pct)}</td>
+              {shooting && <td className="num wide-only">{formatPct(row.shooting_pct)}</td>}
               {FORM_COLUMNS.map((column) => {
                 const average = row[column.key];
                 const range = usualRange(rows, (r) => r[column.key], (r) => r[`${column.key}_spread`], (r) => r[`${column.key}_shots`]);

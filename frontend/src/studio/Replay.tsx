@@ -75,8 +75,8 @@ export default function Replay({ session, request }: Props) {
       </div>
 
       <div className="side">
-        <aside className="review" aria-label="Shot review">
-          <h2>Shot review</h2>
+        <aside className="review" aria-label="Replay">
+          <h2>Replay</h2>
           {shots.length === 0 ? (
             <p className="detail">No shots found in this clip. CourtIQ needs to see both the ball and the hoop.</p>
           ) : (

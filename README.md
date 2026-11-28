@@ -7,6 +7,10 @@ a list of shots you can click to jump to, and your numbers over time.
 Try it at http://16.58.191.114/. I turn the server off when I'm not using it to save AWS
 credits, so if the page doesn't load, it's off for now.
 
+I'm also trying out a second design called Studio at http://16.58.191.114/studio/. It has the
+same data with a sidebar and tabs. Both use the same login, and I'll keep whichever one I like
+more.
+
 I built it because I love basketball and practice a lot at home. I wanted to study fatigue:
 does my form change when I get tired, and how much does that hurt my shooting? Knowing that
 should help me become a better shooter. Also, it's fun.

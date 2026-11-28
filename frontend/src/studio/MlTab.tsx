@@ -16,7 +16,8 @@ type Fatigue = {
 };
 
 // The ML tab: a small model of how your jump changes through a session.
-export default function MlTab() {
+// `numbers` gives each session its number, the same one the other tabs use.
+export default function MlTab({ numbers }: { numbers: Map<string, number> }) {
   // undefined while loading, null when the server doesn't have the model yet.
   const [report, setReport] = useState<Fatigue | null | undefined>(undefined);
   useEffect(() => {
@@ -77,6 +78,7 @@ export default function MlTab() {
             <table>
               <thead>
                 <tr>
+                  <th className="num">#</th>
                   <th>Clip</th>
                   <th className="wide-only">Date</th>
                   <th className="num">First 3 jumps</th>
@@ -87,6 +89,7 @@ export default function MlTab() {
               <tbody>
                 {report.sessions.map((row) => (
                   <tr key={row.id}>
+                    <td className="num">{numbers.get(row.id)}</td>
                     <td className="clip">{row.original_filename}</td>
                     <td className="wide-only">{formatDate(row.created_at)}</td>
                     <td className="num">{row.first.toFixed(2)}</td>
